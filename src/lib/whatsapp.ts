@@ -36,7 +36,7 @@ class EvolutionProvider implements WhatsAppProvider {
   }
 
   async sendAudio(to: string, audioUrl: string) {
-    const res = await fetch(`${this.base}/message/sendAudio/${this.instance}`, {
+    const res = await fetch(`${this.base}/message/sendWhatsAppAudio/${this.instance}`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify({ number: to, audio: audioUrl }),
