@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { db } from '@/lib/db'
 
 // ─── Tipos Meta ──────────────────────────────────────────────────────────────
 interface MetaMessage {
@@ -11,7 +12,6 @@ interface MetaMessage {
   audio?: { id: string; mime_type?: string }
   image?: { id: string; caption?: string; mime_type?: string }
   document?: { id: string; caption?: string; filename?: string; mime_type?: string }
-  sticker?: { id: string }
   video?: { id: string; caption?: string }
 }
 
@@ -28,14 +28,14 @@ interface MetaValue {
   statuses?: unknown[]
 }
 
-// Mapa de tipos Meta → formato Evolution-like
+// Tipo Meta → tipo simplificado usado pelo painel
 const typeMap: Record<string, string> = {
-  text: 'conversation',
-  audio: 'audioMessage',
-  image: 'imageMessage',
-  document: 'documentMessage',
-  sticker: 'stickyMessage',
-  video: 'videoMessage',
+  text: 'text',
+  audio: 'audio',
+  image: 'image',
+  document: 'document',
+  sticker: 'sticker',
+  video: 'video',
 }
 
 // ─── GET — Verificação de webhook pela Meta ──────────────────────────────────
@@ -46,135 +46,79 @@ export async function GET(req: NextRequest) {
   const challenge = searchParams.get('hub.challenge')
 
   if (mode === 'subscribe' && token === process.env.META_VERIFY_TOKEN) {
-    console.log('[Meta Webhook] Verificação de webhook aprovada')
+    console.log('[Meta Webhook] Verificação aprovada')
     return new NextResponse(challenge, { status: 200 })
   }
-
-  console.warn('[Meta Webhook] Verificação recusada — token inválido ou mode incorreto')
+  console.warn('[Meta Webhook] Verificação recusada')
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 }
 
-// ─── POST — Recebe mensagens da Meta e encaminha ao n8n ──────────────────────
+// ─── POST — Recebe mensagens da Meta e grava no painel ───────────────────────
 export async function POST(req: NextRequest) {
-  // 1. Validar assinatura X-Hub-Signature-256 (recomendado)
   const appSecret = process.env.META_APP_SECRET
+
+  // Validar assinatura X-Hub-Signature-256 (se APP_SECRET configurado)
+  let payload: Record<string, unknown>
   if (appSecret) {
     const rawBody = await req.text()
     const signature = req.headers.get('x-hub-signature-256') ?? ''
-    const expected = 'sha256=' + crypto
-      .createHmac('sha256', appSecret)
-      .update(rawBody)
-      .digest('hex')
-
+    const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex')
     if (signature !== expected) {
-      console.warn('[Meta Webhook] Assinatura inválida — requisição rejeitada')
+      console.warn('[Meta Webhook] Assinatura inválida')
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
     }
-
-    // Parse após validação (rawBody já foi lido)
-    let payload: Record<string, unknown>
-    try {
-      payload = JSON.parse(rawBody)
-    } catch {
-      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-    }
-    return handlePayload(payload)
+    try { payload = JSON.parse(rawBody) } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+  } else {
+    try { payload = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
   }
 
-  // Sem APP_SECRET configurado — parse direto
-  let payload: Record<string, unknown>
-  try {
-    payload = await req.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-  }
   return handlePayload(payload)
 }
 
-// ─── Processamento do payload ─────────────────────────────────────────────────
 async function handlePayload(payload: Record<string, unknown>) {
-  // 2. Parsear estrutura Meta
-  const entries = payload.entry as Array<{
-    changes: Array<{ value: MetaValue }>
-  }> | undefined
+  const entries = payload.entry as Array<{ changes: Array<{ value: MetaValue }> }> | undefined
+  const value: MetaValue | undefined = entries?.[0]?.changes?.[0]?.value
 
-  if (!entries || entries.length === 0) {
-    return NextResponse.json({ ok: true })
-  }
-
-  const value: MetaValue | undefined = entries[0]?.changes?.[0]?.value
-
-  if (!value) {
-    return NextResponse.json({ ok: true })
-  }
-
-  // 3. Ignorar eventos de status (delivered, read, sent) — não são mensagens
-  if (!value.messages || value.messages.length === 0) {
+  // Sem mensagens (ex.: eventos de status delivered/read) — ignora
+  if (!value?.messages || value.messages.length === 0) {
     return NextResponse.json({ ok: true })
   }
 
   const message = value.messages[0]
   const contact = value.contacts?.[0]
+  const phoneNumberId = value.metadata?.phone_number_id ?? null
+  const displayNumber = value.metadata?.display_phone_number ?? phoneNumberId ?? 'Meta'
 
-  // 4. Normalizar para formato Evolution-like esperado pelo n8n
-  const metaMediaId: string =
-    ((message as unknown) as Record<string, Record<string, string>>)[message.type]?.id ?? ''
+  const session_id = message.from
+  const nome = contact?.profile?.name ?? message.from
+  const tipo = typeMap[message.type] ?? 'text'
 
-  const normalized = {
-    body: {
-      data: {
-        key: {
-          remoteJid: `${message.from}@s.whatsapp.net`,
-          id: message.id,
-          fromMe: false,
-        },
-        pushName: contact?.profile?.name ?? message.from,
-        message: {
-          conversation: message.type === 'text' ? (message.text?.body ?? '') : '',
-          audioMessage:
-            message.type === 'audio'
-              ? { id: message.audio?.id }
-              : undefined,
-          imageMessage:
-            message.type === 'image'
-              ? { id: message.image?.id, caption: message.image?.caption }
-              : undefined,
-          documentMessage:
-            message.type === 'document'
-              ? { id: message.document?.id, caption: message.document?.caption }
-              : undefined,
-        },
-        messageType: typeMap[message.type] ?? 'conversation',
-        messageTimestamp: parseInt(message.timestamp, 10),
-        // Campos extras para o n8n identificar que é Meta
-        metaPhoneNumberId: value.metadata?.phone_number_id ?? '',
-        metaMediaId,
-        provedor: 'meta',
-      },
-    },
-  }
-
-  // 5. Encaminhar ao n8n
-  const n8nUrl = process.env.N8N_WEBHOOK_URL
-  if (!n8nUrl) {
-    console.warn('[Meta Webhook] N8N_WEBHOOK_URL não configurado — mensagem descartada')
-    return NextResponse.json({ ok: true })
-  }
+  let content = ''
+  if (message.type === 'text') content = message.text?.body ?? ''
+  else if (message.type === 'audio') content = '[Áudio recebido]'
+  else if (message.type === 'image') content = message.image?.caption || '[Imagem]'
+  else if (message.type === 'document') content = message.document?.caption || '[Documento]'
+  else content = '[Mensagem]'
 
   try {
-    const n8nRes = await fetch(n8nUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(normalized),
-    })
-    if (!n8nRes.ok) {
-      const errText = await n8nRes.text()
-      console.error('[Meta Webhook] Erro ao encaminhar ao n8n:', errText)
+    // Auto-cadastra a caixa (número Meta) na primeira mensagem
+    if (phoneNumberId) {
+      await db.query(
+        `INSERT INTO inboxes (key, nome, provider, cor, ordem)
+         VALUES ($1, $2, 'meta', 'blue', 99)
+         ON CONFLICT (key) DO NOTHING`,
+        [phoneNumberId, displayNumber]
+      )
     }
+    await db.query(
+      `INSERT INTO messages (session_id, contact_name, content, message_type, direction, inbox)
+       VALUES ($1,$2,$3,$4,'in',$5)`,
+      [session_id, nome, content, tipo, phoneNumberId]
+    )
   } catch (err) {
-    console.error('[Meta Webhook] Falha de rede ao chamar n8n:', err)
+    console.error('[Meta Webhook] Erro ao gravar no banco:', err)
   }
 
-  // 6. Retornar 200 imediatamente — Meta espera resposta rápida
+  // Meta espera 200 rápido
   return NextResponse.json({ ok: true })
 }
