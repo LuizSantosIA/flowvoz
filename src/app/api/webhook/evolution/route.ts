@@ -8,6 +8,9 @@ export async function POST(req: NextRequest) {
   // Ignorar mensagens enviadas pelo próprio número (fromMe)
   if (data?.key?.fromMe) return NextResponse.json({ ok: true })
 
+  // Qual número/instância recebeu (Evolution v2 envia "instance" no corpo)
+  const inbox: string | null = body?.instance ?? null
+
   const session_id = data?.key?.remoteJid?.split('@')[0]
   const nome = data?.pushName || session_id
   const messageType: string = data?.messageType || 'conversation'
@@ -20,8 +23,8 @@ export async function POST(req: NextRequest) {
 
   try {
     await db.query(
-      `INSERT INTO messages (session_id, contact_name, content, message_type, direction) VALUES ($1,$2,$3,$4,'in')`,
-      [session_id, nome, content, messageType]
+      `INSERT INTO messages (session_id, contact_name, content, message_type, direction, inbox) VALUES ($1,$2,$3,$4,'in',$5)`,
+      [session_id, nome, content, messageType, inbox]
     )
   } catch {
     console.log('[webhook] DB offline, ignorando:', session_id, content)

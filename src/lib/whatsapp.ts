@@ -1,159 +1,72 @@
 /**
- * Abstração do provedor de WhatsApp.
- * Para trocar de Evolution para Meta, mude WA_PROVIDER=meta no .env.local
- * e preencha as variáveis META_*.
+ * Envio de WhatsApp por caixa (inbox) — suporte a múltiplos números.
+ *
+ * Cada inbox tem um provider:
+ *  - 'evolution' → key = nome da instância (usa EVO_URL + EVO_APIKEY do env)
+ *  - 'meta'      → key = phone_number_id   (usa META_TOKEN do env)
+ *
+ * Os segredos compartilhados ficam no env; a identidade do número vem do inbox.
  */
 
-export interface WhatsAppProvider {
-  sendText(to: string, message: string, delay?: number): Promise<void>
-  sendAudio(to: string, audioUrl: string): Promise<void>
-  pauseBot(sessionId: string, ttlSeconds?: number): Promise<void>
-  markAsRead?(messageId: string, extra?: string): Promise<void>
-  getMediaUrl?(mediaId: string): Promise<string>
+export interface InboxConfig {
+  key: string
+  provider: 'evolution' | 'meta'
 }
 
-// ─── Evolution API (atual) ──────────────────────────────────────────────────
-class EvolutionProvider implements WhatsAppProvider {
-  private base = process.env.EVO_URL!
-  private instance = process.env.EVO_INSTANCE!
-  private apikey = process.env.EVO_APIKEY!
-
-  private headers() {
-    return { 'Content-Type': 'application/json', apikey: this.apikey }
-  }
-
-  async sendText(to: string, message: string, delay = 1000) {
-    const res = await fetch(`${this.base}/message/sendText/${this.instance}`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({ number: to, text: message, delay }),
-    })
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('[Evolution] sendText error:', err)
-      throw new Error(err)
-    }
-  }
-
-  async sendAudio(to: string, audioUrl: string) {
-    const res = await fetch(`${this.base}/message/sendWhatsAppAudio/${this.instance}`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({ number: to, audio: audioUrl }),
-    })
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('[Evolution] sendAudio error:', err)
-      throw new Error(err)
-    }
-  }
-
-  async pauseBot(sessionId: string, ttlSeconds = 3600) {
-    // Seta o flag de block no Redis via endpoint do n8n ou diretamente
-    // Por ora, apenas log — implementar conforme infraestrutura do cliente
-    console.log(`[Evolution] Pausing bot for ${sessionId} for ${ttlSeconds}s`)
-  }
+// ─── Helpers de número ────────────────────────────────────────────────────────
+function evoNumber(to: string) {
+  return to.includes('@') ? to : `${to}@s.whatsapp.net`
+}
+function metaNumber(to: string) {
+  return to.replace(/\D/g, '')
 }
 
-// ─── Meta Business API ─────────────────────────────────────────────────────
-class MetaProvider implements WhatsAppProvider {
-  private token = process.env.META_TOKEN!
-  private phoneId = process.env.META_PHONE_NUMBER_ID!
-
-  private headers() {
-    return {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${this.token}`,
-    }
-  }
-
-  async sendText(to: string, message: string, _delay?: number) {
-    const res = await fetch(
-      `https://graph.facebook.com/v20.0/${this.phoneId}/messages`,
-      {
-        method: 'POST',
-        headers: this.headers(),
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to,
-          type: 'text',
-          text: { body: message },
-        }),
-      },
-    )
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('[Meta] sendText error:', err)
-      throw new Error(err)
-    }
-  }
-
-  async sendAudio(to: string, audioUrl: string) {
-    const res = await fetch(
-      `https://graph.facebook.com/v20.0/${this.phoneId}/messages`,
-      {
-        method: 'POST',
-        headers: this.headers(),
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to,
-          type: 'audio',
-          audio: { link: audioUrl },
-        }),
-      },
-    )
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('[Meta] sendAudio error:', err)
-      throw new Error(err)
-    }
-  }
-
-  async pauseBot(sessionId: string, ttlSeconds = 3600) {
-    // Meta não tem endpoint de pause nativo — flag gerenciado externamente
-    console.log(`[Meta] Pausing bot for ${sessionId} for ${ttlSeconds}s`)
-  }
-
-  async markAsRead(messageId: string) {
-    const res = await fetch(
-      `https://graph.facebook.com/v20.0/${this.phoneId}/messages`,
-      {
-        method: 'POST',
-        headers: this.headers(),
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          status: 'read',
-          message_id: messageId,
-        }),
-      },
-    )
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('[Meta] markAsRead error:', err)
-      throw new Error(err)
-    }
-  }
-
-  async getMediaUrl(mediaId: string): Promise<string> {
-    const res = await fetch(
-      `https://graph.facebook.com/v20.0/${mediaId}`,
-      { headers: this.headers() },
-    )
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('[Meta] getMediaUrl error:', err)
-      throw new Error(err)
-    }
-    const data = await res.json()
-    return data.url as string
-  }
+// ─── Evolution API v2 ──────────────────────────────────────────────────────────
+async function evoSendText(instance: string, to: string, message: string, delay = 1000) {
+  const res = await fetch(`${process.env.EVO_URL}/message/sendText/${instance}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: process.env.EVO_APIKEY ?? '' },
+    body: JSON.stringify({ number: evoNumber(to), text: message, delay }),
+  })
+  if (!res.ok) throw new Error(`[Evolution] sendText: ${await res.text()}`)
 }
 
-// ─── Factory ────────────────────────────────────────────────────────────────
-function createProvider(): WhatsAppProvider {
-  const provider = process.env.WA_PROVIDER ?? 'evolution'
-  if (provider === 'meta') return new MetaProvider()
-  return new EvolutionProvider()
+async function evoSendAudio(instance: string, to: string, audioUrl: string) {
+  // v2: o endpoint correto é sendWhatsAppAudio (sendAudio não existe → 404)
+  const res = await fetch(`${process.env.EVO_URL}/message/sendWhatsAppAudio/${instance}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: process.env.EVO_APIKEY ?? '' },
+    body: JSON.stringify({ number: evoNumber(to), audio: audioUrl }),
+  })
+  if (!res.ok) throw new Error(`[Evolution] sendAudio: ${await res.text()}`)
 }
 
-export const whatsapp = createProvider()
+// ─── Meta Cloud API ─────────────────────────────────────────────────────────────
+async function metaSendText(phoneId: string, to: string, message: string) {
+  const res = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.META_TOKEN}` },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: metaNumber(to), type: 'text', text: { body: message } }),
+  })
+  if (!res.ok) throw new Error(`[Meta] sendText: ${await res.text()}`)
+}
+
+async function metaSendAudio(phoneId: string, to: string, audioUrl: string) {
+  const res = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.META_TOKEN}` },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: metaNumber(to), type: 'audio', audio: { link: audioUrl } }),
+  })
+  if (!res.ok) throw new Error(`[Meta] sendAudio: ${await res.text()}`)
+}
+
+// ─── API pública (roteia pelo provider do inbox) ────────────────────────────────
+export async function sendText(inbox: InboxConfig, to: string, message: string, delay = 1000) {
+  if (inbox.provider === 'meta') return metaSendText(inbox.key, to, message)
+  return evoSendText(inbox.key, to, message, delay)
+}
+
+export async function sendAudio(inbox: InboxConfig, to: string, audioUrl: string) {
+  if (inbox.provider === 'meta') return metaSendAudio(inbox.key, to, audioUrl)
+  return evoSendAudio(inbox.key, to, audioUrl)
+}

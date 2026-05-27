@@ -1,22 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { resolveInbox } from '@/lib/inboxes'
+import { sendText, sendAudio } from '@/lib/whatsapp'
 
 export async function POST(req: NextRequest) {
-  const { session_id, tipo, content, audio_url } = await req.json()
+  const { session_id, tipo, content, audio_url, inbox } = await req.json()
 
-  const { whatsapp } = await import('@/lib/whatsapp')
+  // Descobre por qual número/caixa enviar (explícito → conversa → env)
+  const target = await resolveInbox(session_id, inbox)
 
   if (tipo === 'audio' && audio_url) {
-    await whatsapp.sendAudio(session_id + '@s.whatsapp.net', audio_url)
+    await sendAudio(target, session_id, audio_url)
   } else if (tipo === 'text' && content) {
-    await whatsapp.sendText(session_id + '@s.whatsapp.net', content)
+    await sendText(target, session_id, content)
   }
 
-  // Salvar no DB como mensagem outbound
+  // Salvar no DB como mensagem outbound, marcando a caixa
   try {
     await db.query(
-      `INSERT INTO messages (session_id, content, message_type, direction) VALUES ($1,$2,$3,'out')`,
-      [session_id, tipo === 'audio' ? '[Áudio enviado]' : content, tipo]
+      `INSERT INTO messages (session_id, content, message_type, direction, inbox) VALUES ($1,$2,$3,'out',$4)`,
+      [session_id, tipo === 'audio' ? '[Áudio enviado]' : content, tipo, target.key]
     )
   } catch { /* ignora se DB offline */ }
 

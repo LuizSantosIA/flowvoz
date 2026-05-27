@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
 const MOCK_CONVERSAS = [
-  { session_id: '5531991234567', nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais',  hora: '10:32', status: 'novo' },
-  { session_id: '5531998765432', nome: 'Ana Lima',        ultima_msg: 'Qual o valor?',          hora: '10:18', status: 'andamento' },
-  { session_id: '5531987654321', nome: 'Josefa Oliveira', ultima_msg: 'Tá bom obrigada',        hora: '09:47', status: 'encerrado' },
+  { session_id: '5531991234567', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais', hora: '10:32', status: 'novo' },
+  { session_id: '5531998765432', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Ana Lima',        ultima_msg: 'Qual o valor?',         hora: '10:18', status: 'andamento' },
+  { session_id: '5531987654321', inbox: 'num2', inbox_nome: 'Número 2', inbox_cor: 'emerald', nome: 'Josefa Oliveira', ultima_msg: 'Tá bom obrigada',       hora: '09:47', status: 'encerrado' },
 ]
 
 const MOCK_MESSAGES = [
@@ -16,36 +16,42 @@ const MOCK_MESSAGES = [
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const sessionId = searchParams.get('session_id')
+  const inbox = searchParams.get('inbox') // filtro opcional
 
   try {
     if (sessionId) {
-      // Mensagens de uma conversa
-      const result = await db.query<{ id: string; direction: string; content: string; message_type: string; created_at: string }>(
+      // Mensagens de uma conversa (de um número específico se inbox vier)
+      const result = await db.query<{ id: string; direction: string; content: string; tipo: string; hora: string }>(
         `SELECT id::text, direction, content, message_type AS tipo,
                 TO_CHAR(created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora
          FROM messages
-         WHERE session_id = $1
+         WHERE session_id = $1 AND ($2::text IS NULL OR inbox = $2)
          ORDER BY created_at ASC
          LIMIT 200`,
-        [sessionId]
+        [sessionId, inbox]
       )
       return NextResponse.json(result.rows)
     }
 
-    // Lista de conversas (DISTINCT ON session_id)
+    // Lista de conversas — uma por (número, contato)
     const result = await db.query(`
-      SELECT DISTINCT ON (m.session_id)
+      SELECT DISTINCT ON (m.inbox, m.session_id)
         m.session_id,
+        m.inbox,
+        COALESCE(ib.nome, m.inbox, 'Sem número') AS inbox_nome,
+        COALESCE(ib.cor, 'zinc') AS inbox_cor,
         COALESCE(m.contact_name, m.session_id) AS nome,
         m.content AS ultima_msg,
         TO_CHAR(m.created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora,
         COALESCE(cs.status, 'novo') AS status
       FROM messages m
       LEFT JOIN conversas_status cs ON cs.session_id = m.session_id
+      LEFT JOIN inboxes ib ON ib.key = m.inbox
       WHERE m.created_at >= NOW() - INTERVAL '24 hours'
-      ORDER BY m.session_id, m.created_at DESC
-      LIMIT 100
-    `)
+        AND ($1::text IS NULL OR m.inbox = $1)
+      ORDER BY m.inbox, m.session_id, m.created_at DESC
+      LIMIT 200
+    `, [inbox])
     return NextResponse.json(result.rows)
   } catch {
     if (sessionId) return NextResponse.json(MOCK_MESSAGES)
@@ -54,7 +60,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  // Assumir atendimento — pausa bot (sem IA aqui, apenas registra status)
+  // Assumir atendimento
   const { session_id } = await req.json()
   try {
     await db.query(

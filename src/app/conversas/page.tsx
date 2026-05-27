@@ -7,6 +7,9 @@ type ConversaStatus = 'novo' | 'andamento' | 'encerrado'
 
 interface ConversaItem {
   session_id: string
+  inbox: string | null
+  inbox_nome: string
+  inbox_cor: string
   nome: string
   ultima_msg: string
   hora: string
@@ -26,7 +29,14 @@ interface Audio {
   nome: string
   filename: string
   audio_url?: string
-  enviados_hoje?: number
+}
+
+interface Inbox {
+  key: string
+  nome: string
+  provider: string
+  cor: string
+  ordem: number
 }
 
 const STATUS_COLORS: Record<ConversaStatus, string> = {
@@ -41,31 +51,28 @@ const STATUS_LABELS: Record<ConversaStatus, string> = {
   encerrado: 'Encerrado',
 }
 
-const MOCK_CONVERSAS: ConversaItem[] = [
-  { session_id: '5531991234567', nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais',  hora: '10:32', status: 'novo' },
-  { session_id: '5531998765432', nome: 'Ana Lima',        ultima_msg: 'Qual o valor?',          hora: '10:18', status: 'andamento' },
-  { session_id: '5531987654321', nome: 'Josefa Oliveira', ultima_msg: 'Tá bom obrigada',        hora: '09:47', status: 'encerrado' },
-]
+// Cores das etiquetas de número (classes estáticas p/ Tailwind)
+const INBOX_COLORS: Record<string, string> = {
+  violet:  'bg-violet-500/20 text-violet-300 border-violet-500/40',
+  emerald: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+  blue:    'bg-blue-500/20 text-blue-300 border-blue-500/40',
+  amber:   'bg-amber-500/20 text-amber-300 border-amber-500/40',
+  rose:    'bg-rose-500/20 text-rose-300 border-rose-500/40',
+  zinc:    'bg-zinc-700/40 text-zinc-400 border-zinc-600/40',
+}
+function inboxColor(cor?: string) {
+  return INBOX_COLORS[cor ?? 'zinc'] ?? INBOX_COLORS.zinc
+}
 
-const MOCK_MESSAGES: Message[] = [
-  { id: '1', direction: 'in',  content: 'Oi, quero saber mais sobre o produto', tipo: 'text',  hora: '10:30' },
-  { id: '2', direction: 'out', content: 'Boas-vindas',                          tipo: 'audio', hora: '10:31' },
-  { id: '3', direction: 'in',  content: 'Legal, pode me explicar melhor?',      tipo: 'text',  hora: '10:32' },
+const MOCK_CONVERSAS: ConversaItem[] = [
+  { session_id: '5531991234567', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais', hora: '10:32', status: 'novo' },
+  { session_id: '5531998765432', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Ana Lima',        ultima_msg: 'Qual o valor?',         hora: '10:18', status: 'andamento' },
+  { session_id: '5531987654321', inbox: 'num2', inbox_nome: 'Número 2', inbox_cor: 'emerald', nome: 'Josefa Oliveira', ultima_msg: 'Tá bom obrigada',       hora: '09:47', status: 'encerrado' },
 ]
 
 const MOCK_AUDIOS: Audio[] = [
-  { id:  1, nome: 'Saudação inicial',           filename: 'audio-01.ogg', enviados_hoje: 12 },
-  { id:  2, nome: 'Como funciona — 60 dias',    filename: 'audio-02.ogg', enviados_hoje: 8  },
-  { id:  3, nome: 'Moradia — casa ou aluguel',  filename: 'audio-03.ogg', enviados_hoje: 5  },
-  { id:  4, nome: 'Sem investimento inicial',   filename: 'audio-04.ogg', enviados_hoje: 7  },
-  { id:  5, nome: 'Encaminhando pro vendedor',  filename: 'audio-05.ogg', enviados_hoje: 3  },
-  { id:  6, nome: 'Solicitar endereço',         filename: 'audio-06.ogg', enviados_hoje: 4  },
-  { id:  7, nome: 'Já é revendedora',           filename: 'audio-07.ogg', enviados_hoje: 2  },
-  { id:  8, nome: 'Solicitar renda',            filename: 'audio-08.ogg', enviados_hoje: 9  },
-  { id:  9, nome: 'Dúvida sobre comissão',      filename: 'audio-09.ogg', enviados_hoje: 6  },
-  { id: 10, nome: 'Somos de Minas',             filename: 'audio-10.ogg', enviados_hoje: 0  },
-  { id: 11, nome: 'Sem fotos/tabela de preços', filename: 'audio-11.ogg', enviados_hoje: 0  },
-  { id: 12, nome: 'Como funciona — 90 dias',    filename: 'audio-12.ogg', enviados_hoje: 0  },
+  { id: 1, nome: 'Saudação inicial',        filename: 'audio-01.ogg' },
+  { id: 2, nome: 'Como funciona — 60 dias', filename: 'audio-02.ogg' },
 ]
 
 function formatPhone(sessionId: string) {
@@ -76,10 +83,22 @@ function formatPhone(sessionId: string) {
   return sessionId
 }
 
+function convKey(c: { inbox: string | null; session_id: string }) {
+  return `${c.inbox ?? '-'}:${c.session_id}`
+}
+
 function StatusBadge({ status }: { status: ConversaStatus }) {
   return (
     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${STATUS_COLORS[status]}`}>
       {STATUS_LABELS[status]}
+    </span>
+  )
+}
+
+function InboxBadge({ nome, cor }: { nome: string; cor: string }) {
+  return (
+    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${inboxColor(cor)}`}>
+      {nome}
     </span>
   )
 }
@@ -89,7 +108,9 @@ function ConversasContent() {
   const initialSession = searchParams.get('session_id') ?? null
 
   const [conversas, setConversas] = useState<ConversaItem[]>(MOCK_CONVERSAS)
-  const [selectedSession, setSelectedSession] = useState<string | null>(initialSession)
+  const [inboxes, setInboxes] = useState<Inbox[]>([])
+  const [selectedInbox, setSelectedInbox] = useState<string>('todos')
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [replyText, setReplyText] = useState('')
   const [loadingMsgs, setLoadingMsgs] = useState(false)
@@ -105,37 +126,47 @@ function ConversasContent() {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    fetch('/api/inboxes')
+      .then(r => r.json())
+      .then((data: Inbox[]) => { if (Array.isArray(data)) setInboxes(data) })
+      .catch(() => { /* silencioso */ })
+  }, [])
+
+  useEffect(() => {
     fetch('/api/conversas')
       .then(r => r.json())
       .then((data: ConversaItem[]) => {
         setConversas(data)
         const map: Record<string, ConversaStatus> = {}
-        data.forEach(c => { map[c.session_id] = c.status ?? 'novo' })
+        data.forEach(c => { map[convKey(c)] = c.status ?? 'novo' })
         setStatusMap(map)
+        if (initialSession && !selectedKey) {
+          const match = data.find(c => c.session_id === initialSession)
+          if (match) setSelectedKey(convKey(match))
+        }
       })
-      .catch(() => {
-        setConversas(MOCK_CONVERSAS)
-        const map: Record<string, ConversaStatus> = {}
-        MOCK_CONVERSAS.forEach(c => { map[c.session_id] = c.status })
-        setStatusMap(map)
-      })
-  }, [])
+      .catch(() => setConversas(MOCK_CONVERSAS))
+  }, [initialSession]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetch('/api/audios')
       .then(r => r.json())
-      .then((data: Audio[]) => setAudios(data))
+      .then((data: Audio[]) => { if (Array.isArray(data) && data.length) setAudios(data) })
       .catch(() => setAudios(MOCK_AUDIOS))
   }, [])
 
+  const selectedConversa = conversas.find(c => convKey(c) === selectedKey) ?? null
+
   useEffect(() => {
-    if (!selectedSession) return
+    if (!selectedConversa) { setMessages([]); return }
     setLoadingMsgs(true)
-    fetch(`/api/conversas?session_id=${selectedSession}`)
+    const q = new URLSearchParams({ session_id: selectedConversa.session_id })
+    if (selectedConversa.inbox) q.set('inbox', selectedConversa.inbox)
+    fetch(`/api/conversas?${q.toString()}`)
       .then(r => r.json())
       .then((data: Message[]) => { setMessages(data); setLoadingMsgs(false) })
-      .catch(() => { setMessages(MOCK_MESSAGES); setLoadingMsgs(false) })
-  }, [selectedSession])
+      .catch(() => { setMessages([]); setLoadingMsgs(false) })
+  }, [selectedKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -147,33 +178,33 @@ function ConversasContent() {
   }
 
   async function assumeChat() {
-    if (!selectedSession) return
+    if (!selectedConversa) return
     try {
       await fetch('/api/conversas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedSession }),
+        body: JSON.stringify({ session_id: selectedConversa.session_id }),
       })
     } catch { /* silencioso */ }
-    setStatusMap(prev => ({ ...prev, [selectedSession]: 'andamento' }))
+    setStatusMap(prev => ({ ...prev, [selectedKey!]: 'andamento' }))
     showToast('Atendimento assumido!')
   }
 
   async function encerrarChat() {
-    if (!selectedSession) return
-    setStatusMap(prev => ({ ...prev, [selectedSession]: 'encerrado' }))
+    if (!selectedConversa) return
+    setStatusMap(prev => ({ ...prev, [selectedKey!]: 'encerrado' }))
     try {
       await fetch('/api/conversas', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedSession, status: 'encerrado' }),
+        body: JSON.stringify({ session_id: selectedConversa.session_id, status: 'encerrado' }),
       })
     } catch { /* silencioso */ }
     showToast('Conversa encerrada.')
   }
 
   async function sendText() {
-    if (!replyText.trim() || !selectedSession) return
+    if (!replyText.trim() || !selectedConversa) return
     setSendingMsg(true)
     const text = replyText.trim()
     setReplyText('')
@@ -182,21 +213,21 @@ function ConversasContent() {
       await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedSession, tipo: 'text', content: text }),
+        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tipo: 'text', content: text }),
       })
     } catch { /* silencioso */ }
     setSendingMsg(false)
   }
 
   async function sendAudio(audio: Audio) {
-    if (!selectedSession) { showToast('Selecione uma conversa primeiro'); return }
+    if (!selectedConversa) { showToast('Selecione uma conversa primeiro'); return }
     setSendingAudio(audio.id)
     const audioUrl = audio.audio_url || `/audios/${audio.filename}`
     try {
       await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedSession, tipo: 'audio', audio_url: audioUrl }),
+        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tipo: 'audio', audio_url: audioUrl }),
       })
       setMessages(prev => [...prev, { id: Date.now().toString(), direction: 'out', content: audio.nome, tipo: 'audio', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
       setSentAudio(audio.id)
@@ -209,24 +240,25 @@ function ConversasContent() {
 
   function playAudio(audio: Audio) {
     const el = audioRefs.current[audio.id]
-    if (el) {
-      el.currentTime = 0
-      el.play()
-    }
+    if (el) { el.currentTime = 0; el.play() }
   }
 
-  const selectedConversa = conversas.find(c => c.session_id === selectedSession)
-  const currentStatus = selectedSession ? (statusMap[selectedSession] ?? 'novo') : 'novo'
+  const currentStatus: ConversaStatus = selectedKey ? (statusMap[selectedKey] ?? 'novo') : 'novo'
+
+  // 1º filtra por número, 2º por status
+  const byInbox = selectedInbox === 'todos'
+    ? conversas
+    : conversas.filter(c => c.inbox === selectedInbox)
 
   const filteredConversas = activeTab === 'todos'
-    ? conversas
-    : conversas.filter(c => (statusMap[c.session_id] ?? c.status) === activeTab)
+    ? byInbox
+    : byInbox.filter(c => (statusMap[convKey(c)] ?? c.status) === activeTab)
 
   const tabCounts = {
-    todos:     conversas.length,
-    novo:      conversas.filter(c => (statusMap[c.session_id] ?? c.status) === 'novo').length,
-    andamento: conversas.filter(c => (statusMap[c.session_id] ?? c.status) === 'andamento').length,
-    encerrado: conversas.filter(c => (statusMap[c.session_id] ?? c.status) === 'encerrado').length,
+    todos:     byInbox.length,
+    novo:      byInbox.filter(c => (statusMap[convKey(c)] ?? c.status) === 'novo').length,
+    andamento: byInbox.filter(c => (statusMap[convKey(c)] ?? c.status) === 'andamento').length,
+    encerrado: byInbox.filter(c => (statusMap[convKey(c)] ?? c.status) === 'encerrado').length,
   }
 
   const filteredAudios = audios.filter(a => a.nome.toLowerCase().includes(audioSearch.toLowerCase()))
@@ -237,6 +269,8 @@ function ConversasContent() {
     { key: 'andamento', label: 'Em andamento' },
     { key: 'encerrado', label: 'Encerrados' },
   ]
+
+  const showInboxTag = selectedInbox === 'todos' && inboxes.length > 1
 
   return (
     <div className="flex-1 flex overflow-hidden h-full bg-[#09090b]">
@@ -249,10 +283,35 @@ function ConversasContent() {
 
       {/* ── Coluna esquerda: Lista de conversas ── */}
       <div className="w-72 flex-shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/50">
+        {/* Seletor de número */}
+        {inboxes.length > 1 && (
+          <div className="px-3 pt-3 pb-2 border-b border-zinc-800/60 flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setSelectedInbox('todos')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                selectedInbox === 'todos' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Todos
+            </button>
+            {inboxes.map(ib => (
+              <button
+                key={ib.key}
+                onClick={() => setSelectedInbox(ib.key)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                  selectedInbox === ib.key ? inboxColor(ib.cor) : 'bg-zinc-800 text-zinc-400 border-transparent hover:text-zinc-200'
+                }`}
+              >
+                {ib.nome}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="px-4 py-3 border-b border-zinc-800">
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-base font-bold text-white">Conversas</h1>
-            <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full">{conversas.length}</span>
+            <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full">{byInbox.length}</span>
           </div>
           <div className="flex flex-wrap gap-1">
             {tabs.map(tab => (
@@ -260,9 +319,7 @@ function ConversasContent() {
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
-                  activeTab === tab.key
-                    ? 'bg-violet-600 text-white'
-                    : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  activeTab === tab.key ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
                 }`}
               >
                 {tab.label}
@@ -282,13 +339,14 @@ function ConversasContent() {
           {filteredConversas.length === 0 ? (
             <div className="flex items-center justify-center py-16 text-zinc-600 text-sm">Nenhuma conversa</div>
           ) : filteredConversas.map(conv => {
-            const convStatus = (statusMap[conv.session_id] ?? conv.status ?? 'novo') as ConversaStatus
-            const isSelected = selectedSession === conv.session_id
+            const k = convKey(conv)
+            const convStatus = (statusMap[k] ?? conv.status ?? 'novo') as ConversaStatus
+            const isSelected = selectedKey === k
             const inicial = conv.nome.charAt(0).toUpperCase()
             return (
               <button
-                key={conv.session_id}
-                onClick={() => setSelectedSession(conv.session_id)}
+                key={k}
+                onClick={() => setSelectedKey(k)}
                 className={`w-full text-left px-4 py-3.5 border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors ${
                   isSelected ? 'bg-violet-900/20 border-l-2 border-l-violet-500' : ''
                 }`}
@@ -303,8 +361,9 @@ function ConversasContent() {
                       <span className="text-[10px] text-zinc-600 flex-shrink-0 ml-1">{conv.hora}</span>
                     </div>
                     <p className="text-[11px] text-zinc-500 truncate">{conv.ultima_msg}</p>
-                    <div className="mt-1">
+                    <div className="mt-1 flex items-center gap-1">
                       <StatusBadge status={convStatus} />
+                      {showInboxTag && <InboxBadge nome={conv.inbox_nome} cor={conv.inbox_cor} />}
                     </div>
                   </div>
                 </div>
@@ -316,7 +375,7 @@ function ConversasContent() {
 
       {/* ── Coluna central: Chat ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {!selectedSession ? (
+        {!selectedConversa ? (
           <div className="flex-1 flex flex-col items-center justify-center text-zinc-600">
             <svg className="w-12 h-12 mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -329,30 +388,25 @@ function ConversasContent() {
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-zinc-900/60 flex-shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-violet-800/40 flex items-center justify-center text-xs font-bold text-violet-300">
-                  {selectedConversa?.nome.charAt(0).toUpperCase() ?? '?'}
+                  {selectedConversa.nome.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-zinc-100">{selectedConversa?.nome ?? selectedSession}</p>
+                  <p className="text-sm font-semibold text-zinc-100">{selectedConversa.nome}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[11px] text-zinc-500">{formatPhone(selectedSession)}</span>
+                    <span className="text-[11px] text-zinc-500">{formatPhone(selectedConversa.session_id)}</span>
                     <StatusBadge status={currentStatus} />
+                    {inboxes.length > 1 && <InboxBadge nome={selectedConversa.inbox_nome} cor={selectedConversa.inbox_cor} />}
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 {currentStatus !== 'andamento' && currentStatus !== 'encerrado' && (
-                  <button
-                    onClick={assumeChat}
-                    className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-lg transition-colors"
-                  >
+                  <button onClick={assumeChat} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-lg transition-colors">
                     Assumir
                   </button>
                 )}
                 {currentStatus !== 'encerrado' && (
-                  <button
-                    onClick={encerrarChat}
-                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-medium rounded-lg transition-colors"
-                  >
+                  <button onClick={encerrarChat} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-medium rounded-lg transition-colors">
                     Encerrar
                   </button>
                 )}
@@ -370,15 +424,11 @@ function ConversasContent() {
                 return (
                   <div key={msg.id} className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                      isOut
-                        ? 'bg-violet-900/60 text-violet-100 rounded-br-md'
-                        : 'bg-zinc-800 text-zinc-200 rounded-bl-md'
+                      isOut ? 'bg-violet-900/60 text-violet-100 rounded-br-md' : 'bg-zinc-800 text-zinc-200 rounded-bl-md'
                     }`}>
                       {msg.tipo === 'audio' ? (
                         <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            isOut ? 'bg-violet-700/60' : 'bg-zinc-700'
-                          }`}>
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isOut ? 'bg-violet-700/60' : 'bg-zinc-700'}`}>
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path d="M9 18V5l12-2v13" />
                               <circle cx="6" cy="18" r="3" />
@@ -393,9 +443,7 @@ function ConversasContent() {
                       ) : (
                         <p>{msg.content}</p>
                       )}
-                      <p className={`text-[10px] mt-1 ${isOut ? 'text-violet-400/70 text-right' : 'text-zinc-600'}`}>
-                        {msg.hora}
-                      </p>
+                      <p className={`text-[10px] mt-1 ${isOut ? 'text-violet-400/70 text-right' : 'text-zinc-600'}`}>{msg.hora}</p>
                     </div>
                   </div>
                 )
@@ -464,48 +512,23 @@ function ConversasContent() {
             const isSending = sendingAudio === audio.id
             const isSent = sentAudio === audio.id
             return (
-              <div
-                key={audio.id}
-                className={`rounded-xl border p-3 transition-all ${
-                  isSent
-                    ? 'bg-green-900/20 border-green-700/50'
-                    : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
-                }`}
-              >
+              <div key={audio.id} className={`rounded-xl border p-3 transition-all ${isSent ? 'bg-green-900/20 border-green-700/50' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'}`}>
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[10px] font-mono text-zinc-600 flex-shrink-0">
-                      {String(audio.id).padStart(2, '0')}
-                    </span>
+                    <span className="text-[10px] font-mono text-zinc-600 flex-shrink-0">{String(audio.id).padStart(2, '0')}</span>
                     <span className="text-xs font-semibold text-zinc-200 truncate">{audio.nome}</span>
                   </div>
                 </div>
-                {/* Hidden audio element for preview */}
-                <audio
-                  ref={el => { audioRefs.current[audio.id] = el }}
-                  src={audio.audio_url || `/audios/${audio.filename}`}
-                  preload="none"
-                  className="hidden"
-                />
+                <audio ref={el => { audioRefs.current[audio.id] = el }} src={audio.audio_url || `/audios/${audio.filename}`} preload="none" className="hidden" />
                 <div className="flex gap-1.5">
-                  <button
-                    onClick={() => playAudio(audio)}
-                    title="Ouvir prévia"
-                    className="flex items-center justify-center w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
+                  <button onClick={() => playAudio(audio)} title="Ouvir prévia" className="flex items-center justify-center w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0">
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                   </button>
                   <button
                     onClick={() => sendAudio(audio)}
                     disabled={isSending}
                     className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                      isSent
-                        ? 'bg-green-700 text-white'
-                        : isSending
-                        ? 'bg-violet-800 text-violet-300 cursor-wait'
-                        : 'bg-violet-600 hover:bg-violet-700 text-white'
+                      isSent ? 'bg-green-700 text-white' : isSending ? 'bg-violet-800 text-violet-300 cursor-wait' : 'bg-violet-600 hover:bg-violet-700 text-white'
                     }`}
                   >
                     {isSending ? (
@@ -518,14 +541,10 @@ function ConversasContent() {
                       </>
                     ) : isSent ? (
                       <>
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><polyline points="20 6 9 17 4 12" /></svg>
                         Enviado!
                       </>
-                    ) : (
-                      'Enviar'
-                    )}
+                    ) : 'Enviar'}
                   </button>
                 </div>
               </div>
@@ -539,9 +558,7 @@ function ConversasContent() {
 
 export default function ConversasPage() {
   return (
-    <Suspense fallback={
-      <div className="flex-1 flex items-center justify-center text-zinc-600 text-sm">Carregando…</div>
-    }>
+    <Suspense fallback={<div className="flex-1 flex items-center justify-center text-zinc-600 text-sm">Carregando…</div>}>
       <ConversasContent />
     </Suspense>
   )
