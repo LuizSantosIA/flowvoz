@@ -145,6 +145,25 @@ function ConversasContent() {
   const [mobileShortcutsOpen, setMobileShortcutsOpen] = useState(false)
   const [sendingAudio, setSendingAudio] = useState<number | null>(null)
   const [sentAudio, setSentAudio] = useState<number | null>(null)
+
+  // Gravação ao vivo
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
+  const [recordTime, setRecordTime] = useState(0)
+  const [sendingRecording, setSendingRecording] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordStreamRef = useRef<MediaStream | null>(null)
+  const recordChunksRef = useRef<Blob[]>([])
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Cria/revoga a URL temporária do áudio gravado conforme o blob muda
+  useEffect(() => {
+    if (!recordedBlob) { setRecordedUrl(null); return }
+    const url = URL.createObjectURL(recordedBlob)
+    setRecordedUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [recordedBlob])
   const [playingAudioId, setPlayingAudioId] = useState<number | null>(null)
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -396,6 +415,88 @@ function ConversasContent() {
       showToast('Falha de rede ao enviar áudio.')
     }
     setSendingAudio(null)
+  }
+
+  // ── Gravação ao vivo ────────────────────────────────────────────────────────
+  function pickMime(): string {
+    if (typeof MediaRecorder === 'undefined') return ''
+    const tries = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+    for (const t of tries) { if (MediaRecorder.isTypeSupported(t)) return t }
+    return ''
+  }
+  function fmtTime(s: number) {
+    const m = Math.floor(s / 60).toString().padStart(2, '0')
+    const sec = (s % 60).toString().padStart(2, '0')
+    return `${m}:${sec}`
+  }
+  async function startRecording() {
+    if (!selectedConversa) { showToast('Selecione uma conversa primeiro'); return }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      recordStreamRef.current = stream
+      const mime = pickMime()
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+      mediaRecorderRef.current = rec
+      recordChunksRef.current = []
+      rec.ondataavailable = e => { if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data) }
+      rec.onstop = () => {
+        const type = rec.mimeType || 'audio/ogg'
+        const blob = new Blob(recordChunksRef.current, { type })
+        setRecordedBlob(blob)
+        stream.getTracks().forEach(t => t.stop())
+        recordStreamRef.current = null
+      }
+      rec.start()
+      setIsRecording(true)
+      setRecordedBlob(null)
+      setRecordTime(0)
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current)
+      recordTimerRef.current = setInterval(() => setRecordTime(t => t + 1), 1000)
+    } catch {
+      showToast('Permita o acesso ao microfone no navegador.')
+    }
+  }
+  function stopRecording() {
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+    setIsRecording(false)
+    const rec = mediaRecorderRef.current
+    if (rec && rec.state !== 'inactive') rec.stop()
+  }
+  function discardRecording() {
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop() } catch {}
+    }
+    recordStreamRef.current?.getTracks().forEach(t => t.stop())
+    recordStreamRef.current = null
+    setIsRecording(false)
+    setRecordedBlob(null)
+    setRecordTime(0)
+  }
+  async function sendRecording() {
+    if (!recordedBlob || !selectedConversa) return
+    setSendingRecording(true)
+    const optId = `tmp-${Date.now()}`
+    setMessages(prev => [...prev, { id: optId, direction: 'out', content: 'Áudio gravado', tipo: 'audio', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
+    try {
+      const form = new FormData()
+      const ext = recordedBlob.type.includes('ogg') ? 'ogg' : recordedBlob.type.includes('mp4') ? 'm4a' : 'webm'
+      form.append('audio', recordedBlob, `gravacao.${ext}`)
+      form.append('session_id', selectedConversa.session_id)
+      if (selectedConversa.inbox) form.append('inbox', selectedConversa.inbox)
+      const r = await fetch('/api/send-recording', { method: 'POST', body: form })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        showToast(d.error || 'Falha ao enviar áudio.')
+        setMessages(prev => prev.filter(m => m.id !== optId))
+      } else {
+        discardRecording()
+      }
+    } catch {
+      showToast('Falha de rede.')
+      setMessages(prev => prev.filter(m => m.id !== optId))
+    }
+    setSendingRecording(false)
   }
 
   function togglePlay(audio: Audio) {
@@ -705,32 +806,89 @@ function ConversasContent() {
 
             {/* Input */}
             <div className="px-5 py-3 pb-20 md:pb-3 border-t border-zinc-800 bg-zinc-900/40 flex-shrink-0">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Digite uma mensagem…"
-                  value={replyText}
-                  onChange={e => setReplyText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText() } }}
-                  className="flex-1 px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600 transition-colors"
-                />
-                <button
-                  onClick={sendText}
-                  disabled={sendingMsg || !replyText.trim()}
-                  className="px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex items-center gap-1.5"
-                >
-                  {sendingMsg ? (
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                    </svg>
+              {/* Modo 1: Gravando agora */}
+              {isRecording ? (
+                <div className="flex items-center gap-3 px-3 py-2 bg-rose-950/30 border border-rose-900/60 rounded-xl">
+                  <span className="w-2.5 h-2.5 bg-rose-500 rounded-full animate-pulse flex-shrink-0" />
+                  <span className="text-sm text-rose-200 font-mono">{fmtTime(recordTime)}</span>
+                  <span className="text-xs text-rose-300/80 flex-1">Gravando…</span>
+                  <button onClick={discardRecording} title="Cancelar" className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded-lg">
+                    Cancelar
+                  </button>
+                  <button onClick={stopRecording} title="Parar" className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+                    Parar
+                  </button>
+                </div>
+              ) : recordedBlob ? (
+                /* Modo 2: Áudio gravado, esperando envio/descarte */
+                <div className="flex items-center gap-2 px-3 py-2 bg-violet-950/30 border border-violet-900/60 rounded-xl">
+                  <svg className="w-4 h-4 text-violet-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                  {recordedUrl && <audio controls src={recordedUrl} className="flex-1 h-8" />}
+                  <button onClick={discardRecording} disabled={sendingRecording} title="Descartar"
+                    className="p-2 text-zinc-400 hover:text-rose-400 disabled:opacity-40">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /></svg>
+                  </button>
+                  <button onClick={sendRecording} disabled={sendingRecording}
+                    className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5">
+                    {sendingRecording ? (
+                      <>
+                        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                        </svg>
+                        Enviando…
+                      </>
+                    ) : 'Enviar'}
+                  </button>
+                </div>
+              ) : (
+                /* Modo 3: Input de texto + botões */
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Digite uma mensagem…"
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText() } }}
+                    className="flex-1 px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-xl text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600 transition-colors"
+                  />
+                  {replyText.trim() ? (
+                    <button
+                      onClick={sendText}
+                      disabled={sendingMsg}
+                      title="Enviar"
+                      className="px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl transition-colors flex items-center gap-1.5"
+                    >
+                      {sendingMsg ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                        </svg>
+                      )}
+                    </button>
                   ) : (
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                    </svg>
+                    <button
+                      onClick={startRecording}
+                      title="Gravar áudio"
+                      className="px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl transition-colors flex items-center gap-1.5"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="23" />
+                        <line x1="8" y1="23" x2="16" y2="23" />
+                      </svg>
+                    </button>
                   )}
-                </button>
-              </div>
+                </div>
+              )}
             </div>
           </>
         )}
