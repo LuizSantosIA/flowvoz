@@ -3,8 +3,6 @@
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
-type ConversaStatus = 'novo' | 'andamento' | 'encerrado'
-
 interface ConversaItem {
   session_id: string
   inbox: string | null
@@ -13,7 +11,6 @@ interface ConversaItem {
   nome: string
   ultima_msg: string
   hora: string
-  status: ConversaStatus
   last_direction?: 'in' | 'out'
   last_at?: string
 }
@@ -75,18 +72,6 @@ interface Inbox {
   ordem: number
 }
 
-const STATUS_COLORS: Record<ConversaStatus, string> = {
-  novo:      'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  andamento: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-  encerrado: 'bg-zinc-700/40 text-zinc-500 border-zinc-600/30',
-}
-
-const STATUS_LABELS: Record<ConversaStatus, string> = {
-  novo:      'Novo',
-  andamento: 'Em andamento',
-  encerrado: 'Encerrado',
-}
-
 // Cores das etiquetas de número (classes estáticas p/ Tailwind)
 const INBOX_COLORS: Record<string, string> = {
   violet:  'bg-violet-500/20 text-violet-300 border-violet-500/40',
@@ -101,9 +86,9 @@ function inboxColor(cor?: string) {
 }
 
 const MOCK_CONVERSAS: ConversaItem[] = [
-  { session_id: '5531991234567', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais', hora: '10:32', status: 'novo' },
-  { session_id: '5531998765432', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Ana Lima',        ultima_msg: 'Qual o valor?',         hora: '10:18', status: 'andamento' },
-  { session_id: '5531987654321', inbox: 'num2', inbox_nome: 'Número 2', inbox_cor: 'emerald', nome: 'Josefa Oliveira', ultima_msg: 'Tá bom obrigada',       hora: '09:47', status: 'encerrado' },
+  { session_id: '5531991234567', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais', hora: '10:32' },
+  { session_id: '5531998765432', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Ana Lima',        ultima_msg: 'Qual o valor?',         hora: '10:18' },
+  { session_id: '5531987654321', inbox: 'num2', inbox_nome: 'Número 2', inbox_cor: 'emerald', nome: 'Josefa Oliveira', ultima_msg: 'Tá bom obrigada',       hora: '09:47' },
 ]
 
 const MOCK_AUDIOS: Audio[] = [
@@ -121,14 +106,6 @@ function formatPhone(sessionId: string) {
 
 function convKey(c: { inbox: string | null; session_id: string }) {
   return `${c.inbox ?? '-'}:${c.session_id}`
-}
-
-function StatusBadge({ status }: { status: ConversaStatus }) {
-  return (
-    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${STATUS_COLORS[status]}`}>
-      {STATUS_LABELS[status]}
-    </span>
-  )
 }
 
 function InboxBadge({ nome, cor }: { nome: string; cor: string }) {
@@ -153,8 +130,6 @@ function ConversasContent() {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [sendingMsg, setSendingMsg] = useState(false)
   const [toast, setToast] = useState('')
-  const [activeTab, setActiveTab] = useState<ConversaStatus | 'todos'>('todos')
-  const [statusMap, setStatusMap] = useState<Record<string, ConversaStatus>>({})
   const [audios, setAudios] = useState<Audio[]>(MOCK_AUDIOS)
   const [audioSearch, setAudioSearch] = useState('')
   const [templates, setTemplates] = useState<TextTemplate[]>([])
@@ -178,9 +153,6 @@ function ConversasContent() {
       .then(r => r.json())
       .then((data: ConversaItem[]) => {
         setConversas(data)
-        const map: Record<string, ConversaStatus> = {}
-        data.forEach(c => { map[convKey(c)] = c.status ?? 'novo' })
-        setStatusMap(map)
         if (initialSession && !selectedKey) {
           const match = data.find(c => c.session_id === initialSession)
           if (match) setSelectedKey(convKey(match))
@@ -367,32 +339,6 @@ function ConversasContent() {
     setTimeout(() => setToast(''), 3000)
   }
 
-  async function assumeChat() {
-    if (!selectedConversa) return
-    try {
-      await fetch('/api/conversas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox }),
-      })
-    } catch { /* silencioso */ }
-    setStatusMap(prev => ({ ...prev, [selectedKey!]: 'andamento' }))
-    showToast('Atendimento assumido!')
-  }
-
-  async function encerrarChat() {
-    if (!selectedConversa) return
-    setStatusMap(prev => ({ ...prev, [selectedKey!]: 'encerrado' }))
-    try {
-      await fetch('/api/conversas', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, status: 'encerrado' }),
-      })
-    } catch { /* silencioso */ }
-    showToast('Conversa encerrada.')
-  }
-
   async function sendText() {
     if (!replyText.trim() || !selectedConversa) return
     setSendingMsg(true)
@@ -459,16 +405,14 @@ function ConversasContent() {
     el.play().then(() => setPlayingAudioId(audio.id)).catch(() => setPlayingAudioId(null))
   }
 
-  const currentStatus: ConversaStatus = selectedKey ? (statusMap[selectedKey] ?? 'novo') : 'novo'
-
-  // 1º filtra por número, 2º por status
+  // Filtro por número
   const byInbox = selectedInbox === 'todos'
     ? conversas
     : conversas.filter(c => c.inbox === selectedInbox)
 
   // Busca (nome / número / última msg)
   const searchTerm = search.trim().toLowerCase()
-  const byInboxAndSearch = searchTerm
+  const filteredConversas = searchTerm
     ? byInbox.filter(c =>
         c.nome.toLowerCase().includes(searchTerm) ||
         c.session_id.toLowerCase().includes(searchTerm) ||
@@ -476,35 +420,14 @@ function ConversasContent() {
       )
     : byInbox
 
-  const filteredConversas = activeTab === 'todos'
-    ? byInboxAndSearch
-    : byInboxAndSearch.filter(c => (statusMap[convKey(c)] ?? c.status) === activeTab)
-
-  // Não lidas: conversas onde a última mensagem é "in" E status != 'encerrado'
-  function isUnread(c: ConversaItem) {
-    const st = statusMap[convKey(c)] ?? c.status
-    return c.last_direction === 'in' && st !== 'encerrado'
-  }
+  // Não lidas: conversas cuja última mensagem foi recebida do cliente
+  const isUnread = (c: ConversaItem) => c.last_direction === 'in'
   const unreadByInbox: Record<string, number> = { todos: conversas.filter(isUnread).length }
   for (const ib of inboxes) {
     unreadByInbox[ib.key] = conversas.filter(c => c.inbox === ib.key && isUnread(c)).length
   }
 
-  const tabCounts = {
-    todos:     byInbox.length,
-    novo:      byInbox.filter(c => (statusMap[convKey(c)] ?? c.status) === 'novo').length,
-    andamento: byInbox.filter(c => (statusMap[convKey(c)] ?? c.status) === 'andamento').length,
-    encerrado: byInbox.filter(c => (statusMap[convKey(c)] ?? c.status) === 'encerrado').length,
-  }
-
   const filteredAudios = audios.filter(a => a.nome.toLowerCase().includes(audioSearch.toLowerCase()))
-
-  const tabs: { key: ConversaStatus | 'todos'; label: string }[] = [
-    { key: 'todos',     label: 'Todos' },
-    { key: 'novo',      label: 'Novos' },
-    { key: 'andamento', label: 'Em andamento' },
-    { key: 'encerrado', label: 'Encerrados' },
-  ]
 
   const showInboxTag = selectedInbox === 'todos' && inboxes.length > 1
 
@@ -637,26 +560,6 @@ function ConversasContent() {
               </button>
             )}
           </div>
-          <div className="flex flex-wrap gap-1">
-            {tabs.map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors ${
-                  activeTab === tab.key ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {tab.label}
-                {tabCounts[tab.key] > 0 && (
-                  <span className={`text-[10px] px-1 rounded-full ${
-                    activeTab === tab.key ? 'bg-violet-500 text-white' : 'bg-zinc-700 text-zinc-400'
-                  }`}>
-                    {tabCounts[tab.key]}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -664,7 +567,6 @@ function ConversasContent() {
             <div className="flex items-center justify-center py-16 text-zinc-600 text-sm">Nenhuma conversa</div>
           ) : filteredConversas.map(conv => {
             const k = convKey(conv)
-            const convStatus = (statusMap[k] ?? conv.status ?? 'novo') as ConversaStatus
             const isSelected = selectedKey === k
             const inicial = conv.nome.charAt(0).toUpperCase()
             return (
@@ -685,10 +587,11 @@ function ConversasContent() {
                       <span className="text-[10px] text-zinc-600 flex-shrink-0 ml-1">{conv.hora}</span>
                     </div>
                     <p className="text-[11px] text-zinc-500 truncate">{conv.ultima_msg}</p>
-                    <div className="mt-1 flex items-center gap-1">
-                      <StatusBadge status={convStatus} />
-                      {showInboxTag && <InboxBadge nome={conv.inbox_nome} cor={conv.inbox_cor} />}
-                    </div>
+                    {showInboxTag && (
+                      <div className="mt-1">
+                        <InboxBadge nome={conv.inbox_nome} cor={conv.inbox_cor} />
+                      </div>
+                    )}
                   </div>
                 </div>
               </button>
@@ -727,7 +630,6 @@ function ConversasContent() {
                   <p className="text-sm font-semibold text-zinc-100">{selectedConversa.nome}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-[11px] text-zinc-500">{formatPhone(selectedConversa.session_id)}</span>
-                    <StatusBadge status={currentStatus} />
                     {inboxes.length > 1 && <InboxBadge nome={selectedConversa.inbox_nome} cor={selectedConversa.inbox_cor} />}
                   </div>
                 </div>
@@ -745,16 +647,6 @@ function ConversasContent() {
                     <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
                 </button>
-                {currentStatus !== 'andamento' && currentStatus !== 'encerrado' && (
-                  <button onClick={assumeChat} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-lg transition-colors">
-                    Assumir
-                  </button>
-                )}
-                {currentStatus !== 'encerrado' && (
-                  <button onClick={encerrarChat} className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-medium rounded-lg transition-colors">
-                    Encerrar
-                  </button>
-                )}
               </div>
             </div>
 
