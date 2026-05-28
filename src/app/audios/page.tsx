@@ -26,6 +26,24 @@ export default function AudiosPage() {
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Gravação ao vivo (modal separado)
+  const [showRecModal, setShowRecModal] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
+  const [recordTime, setRecordTime] = useState(0)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordStreamRef = useRef<MediaStream | null>(null)
+  const recordChunksRef = useRef<Blob[]>([])
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!recordedBlob) { setRecordedUrl(null); return }
+    const url = URL.createObjectURL(recordedBlob)
+    setRecordedUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [recordedBlob])
+
   function showToast(m: string) { setToast(m); setTimeout(() => setToast(''), 2500) }
 
   function load() {
@@ -111,6 +129,91 @@ export default function AudiosPage() {
     if (f) setFile(f)
   }
 
+  // ── Gravação ao vivo ────────────────────────────────────────────────────────
+  function pickMime(): string {
+    if (typeof MediaRecorder === 'undefined') return ''
+    for (const t of ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
+      if (MediaRecorder.isTypeSupported(t)) return t
+    }
+    return ''
+  }
+  function fmtTime(s: number) {
+    return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
+  }
+  function openRec() {
+    setNome(''); setRecordedBlob(null); setRecordTime(0); setIsRecording(false); setShowRecModal(true)
+  }
+  function closeRec() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop() } catch {}
+    }
+    recordStreamRef.current?.getTracks().forEach(t => t.stop())
+    recordStreamRef.current = null
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+    setIsRecording(false); setRecordedBlob(null); setRecordTime(0); setShowRecModal(false)
+  }
+  async function startRecording() {
+    if (typeof window === 'undefined' || !window.isSecureContext) { showToast('Gravação só funciona em HTTPS.'); return }
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) { showToast('Navegador não suporta gravação.'); return }
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (err) {
+      const e = err as { name?: string }
+      if (e.name === 'NotAllowedError') showToast('Você negou o acesso ao microfone.')
+      else if (e.name === 'NotFoundError') showToast('Nenhum microfone encontrado.')
+      else if (e.name === 'NotReadableError') showToast('Microfone em uso por outro programa.')
+      else showToast('Não foi possível acessar o microfone.')
+      return
+    }
+    try {
+      recordStreamRef.current = stream
+      const mime = pickMime()
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+      mediaRecorderRef.current = rec
+      recordChunksRef.current = []
+      rec.ondataavailable = e => { if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data) }
+      rec.onstop = () => {
+        const type = rec.mimeType || 'audio/ogg'
+        setRecordedBlob(new Blob(recordChunksRef.current, { type }))
+        stream.getTracks().forEach(t => t.stop())
+        recordStreamRef.current = null
+      }
+      rec.start()
+      setIsRecording(true); setRecordedBlob(null); setRecordTime(0)
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current)
+      recordTimerRef.current = setInterval(() => setRecordTime(t => t + 1), 1000)
+    } catch {
+      stream.getTracks().forEach(t => t.stop())
+      showToast('Erro ao iniciar gravação.')
+    }
+  }
+  function stopRecording() {
+    if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
+    setIsRecording(false)
+    const rec = mediaRecorderRef.current
+    if (rec && rec.state !== 'inactive') rec.stop()
+  }
+  async function saveRecording() {
+    if (!recordedBlob || !nome.trim()) { showToast('Grave um áudio e informe o nome.'); return }
+    setUploading(true)
+    try {
+      const ext = recordedBlob.type.includes('ogg') ? 'ogg' : recordedBlob.type.includes('mp4') ? 'm4a' : 'webm'
+      const form = new FormData()
+      form.append('file', new File([recordedBlob], `gravacao.${ext}`, { type: recordedBlob.type }))
+      form.append('nome', nome.trim())
+      const r = await fetch('/api/audios', { method: 'POST', body: form })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        showToast(d.error || 'Falha ao salvar.')
+      } else {
+        showToast('Áudio gravado salvo!')
+        closeRec(); load()
+      }
+    } catch { showToast('Falha de rede.') }
+    setUploading(false)
+  }
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#09090b]">
       {toast && <div className="fixed top-5 right-5 z-50 bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm px-4 py-2.5 rounded-xl shadow-xl">{toast}</div>}
@@ -128,10 +231,21 @@ export default function AudiosPage() {
           </h1>
           <p className="text-xs text-zinc-500 mt-0.5">{loading ? 'Carregando…' : `${audios.length} áudio(s) disponível(is)`}</p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-          Adicionar áudio
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={openRec} title="Gravar do microfone" className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-xl">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            Gravar áudio
+          </button>
+          <button onClick={openNew} className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold rounded-xl">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+            Adicionar áudio
+          </button>
+        </div>
       </div>
 
       <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pb-20 md:pb-6">
@@ -246,6 +360,71 @@ export default function AudiosPage() {
               <button onClick={() => setShowModal(false)} disabled={uploading} className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm rounded-xl disabled:opacity-50">Cancelar</button>
               <button onClick={saveNew} disabled={uploading || !file || !nome.trim()} className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl">
                 {uploading ? 'Enviando…' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRecModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-white">Gravar novo áudio</h3>
+              <button onClick={closeRec} className="text-zinc-500 hover:text-zinc-300">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            </div>
+
+            {/* área de gravação */}
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-6 mb-4 flex flex-col items-center gap-3">
+              {isRecording ? (
+                <>
+                  <div className="w-20 h-20 rounded-full bg-rose-600/20 border-2 border-rose-500 flex items-center justify-center animate-pulse">
+                    <svg className="w-10 h-10 text-rose-400" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    </svg>
+                  </div>
+                  <p className="text-2xl font-mono text-rose-300">{fmtTime(recordTime)}</p>
+                  <button onClick={stopRecording} className="px-6 py-2 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-lg flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+                    Parar
+                  </button>
+                </>
+              ) : recordedBlob ? (
+                <>
+                  <p className="text-xs text-emerald-400 font-medium">✓ Áudio gravado ({fmtTime(recordTime)})</p>
+                  {recordedUrl && <audio controls src={recordedUrl} className="w-full" />}
+                  <button onClick={() => { setRecordedBlob(null); setRecordTime(0) }} className="text-xs text-zinc-400 hover:text-rose-400 underline">
+                    Gravar de novo
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="w-20 h-20 rounded-full bg-violet-600/10 border-2 border-violet-600/30 flex items-center justify-center">
+                    <svg className="w-10 h-10 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  </div>
+                  <button onClick={startRecording} className="px-6 py-2 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-lg flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-white" />
+                    Começar a gravar
+                  </button>
+                </>
+              )}
+            </div>
+
+            <label className="block text-xs font-medium text-zinc-400 mb-1.5">Nome do áudio</label>
+            <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex: Saudação personalizada"
+              className="w-full px-3 py-2.5 mb-4 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600" />
+            <div className="flex gap-3">
+              <button onClick={closeRec} disabled={uploading} className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm rounded-xl disabled:opacity-50">Cancelar</button>
+              <button onClick={saveRecording} disabled={uploading || !recordedBlob || !nome.trim()}
+                className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl">
+                {uploading ? 'Salvando…' : 'Salvar como template'}
               </button>
             </div>
           </div>
