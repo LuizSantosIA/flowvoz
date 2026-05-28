@@ -75,12 +75,28 @@ export async function POST(req: NextRequest) {
   return handlePayload(payload)
 }
 
-async function handlePayload(payload: Record<string, unknown>) {
-  const entries = payload.entry as Array<{ changes: Array<{ value: MetaValue }> }> | undefined
-  const value: MetaValue | undefined = entries?.[0]?.changes?.[0]?.value
+interface MetaStatus { id: string; status: string; recipient_id?: string; timestamp?: string }
 
-  // Sem mensagens (ex.: eventos de status delivered/read) — ignora
-  if (!value?.messages || value.messages.length === 0) {
+async function handlePayload(payload: Record<string, unknown>) {
+  const entries = payload.entry as Array<{ changes: Array<{ value: MetaValue & { statuses?: MetaStatus[] } }> }> | undefined
+  const value = entries?.[0]?.changes?.[0]?.value
+
+  if (!value) return NextResponse.json({ ok: true })
+
+  // Eventos de status (sent / delivered / read / failed) — atualizam mensagens outbound
+  if (value.statuses && value.statuses.length > 0) {
+    for (const st of value.statuses) {
+      try {
+        await db.query(
+          `UPDATE messages SET status = $1 WHERE external_id = $2`,
+          [st.status, st.id]
+        )
+      } catch { /* silencioso */ }
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  if (!value.messages || value.messages.length === 0) {
     return NextResponse.json({ ok: true })
   }
 

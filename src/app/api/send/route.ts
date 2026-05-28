@@ -30,11 +30,12 @@ export async function POST(req: NextRequest) {
 
   const target = await resolveInbox(session_id, inbox)
 
+  let externalId: string | undefined
   try {
     if (tipo === 'audio') {
-      await sendAudio(target, session_id, audio_url)
+      ({ externalId } = await sendAudio(target, session_id, audio_url))
     } else if (tipo === 'text') {
-      await sendText(target, session_id, content)
+      ({ externalId } = await sendText(target, session_id, content))
     } else {
       return NextResponse.json({ ok: false, error: 'Tipo de mensagem inválido.' }, { status: 400 })
     }
@@ -44,11 +45,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: friendlyError(raw) }, { status: 502 })
   }
 
-  // Sucesso: registra no DB
+  // Sucesso: registra no DB com external_id e status='sent'
   try {
     await db.query(
-      `INSERT INTO messages (session_id, content, message_type, direction, inbox) VALUES ($1,$2,$3,'out',$4)`,
-      [session_id, tipo === 'audio' ? '[Áudio enviado]' : content, tipo, target.key]
+      `INSERT INTO messages (session_id, content, message_type, direction, inbox, external_id, status)
+       VALUES ($1,$2,$3,'out',$4,$5,'sent')`,
+      [session_id, tipo === 'audio' ? '[Áudio enviado]' : content, tipo, target.key, externalId ?? null]
     )
   } catch { /* ignora se DB offline */ }
 

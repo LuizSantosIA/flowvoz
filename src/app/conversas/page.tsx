@@ -14,6 +14,8 @@ interface ConversaItem {
   ultima_msg: string
   hora: string
   status: ConversaStatus
+  last_direction?: 'in' | 'out'
+  last_at?: string
 }
 
 interface Message {
@@ -22,6 +24,34 @@ interface Message {
   content: string
   tipo: 'text' | 'audio'
   hora: string
+  status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | null
+}
+
+function StatusTicks({ status }: { status?: Message['status'] }) {
+  if (!status) return null
+  if (status === 'failed') {
+    return (
+      <svg className="w-3.5 h-3.5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+      </svg>
+    )
+  }
+  // ticks
+  if (status === 'sent') {
+    return (
+      <svg className="w-3.5 h-3.5 text-violet-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    )
+  }
+  // delivered or read
+  const color = status === 'read' ? 'text-sky-300' : 'text-violet-400/70'
+  return (
+    <svg className={`w-4 h-3.5 ${color}`} fill="none" viewBox="0 0 28 24" stroke="currentColor" strokeWidth={2.5}>
+      <polyline points="20 6 9 17 4 12" />
+      <polyline points="27 6 16 17 11 12" />
+    </svg>
+  )
 }
 
 interface Audio {
@@ -29,6 +59,12 @@ interface Audio {
   nome: string
   filename: string
   audio_url?: string
+}
+
+interface TextTemplate {
+  id: number
+  nome: string
+  content: string
 }
 
 interface Inbox {
@@ -111,6 +147,7 @@ function ConversasContent() {
   const [inboxes, setInboxes] = useState<Inbox[]>([])
   const [selectedInbox, setSelectedInbox] = useState<string>('todos')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [replyText, setReplyText] = useState('')
   const [loadingMsgs, setLoadingMsgs] = useState(false)
@@ -120,6 +157,8 @@ function ConversasContent() {
   const [statusMap, setStatusMap] = useState<Record<string, ConversaStatus>>({})
   const [audios, setAudios] = useState<Audio[]>(MOCK_AUDIOS)
   const [audioSearch, setAudioSearch] = useState('')
+  const [templates, setTemplates] = useState<TextTemplate[]>([])
+  const [rightTab, setRightTab] = useState<'audios' | 'textos'>('audios')
   const [sendingAudio, setSendingAudio] = useState<number | null>(null)
   const [sentAudio, setSentAudio] = useState<number | null>(null)
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({})
@@ -155,6 +194,13 @@ function ConversasContent() {
       .catch(() => setAudios(MOCK_AUDIOS))
   }, [])
 
+  useEffect(() => {
+    fetch('/api/templates')
+      .then(r => r.json())
+      .then((data: TextTemplate[]) => { if (Array.isArray(data)) setTemplates(data) })
+      .catch(() => { /* silencioso */ })
+  }, [])
+
   const selectedConversa = conversas.find(c => convKey(c) === selectedKey) ?? null
 
   useEffect(() => {
@@ -171,11 +217,74 @@ function ConversasContent() {
   // ── Polling 5s: atualiza lista e mensagens sem precisar de F5 ──
   const selectedRef = useRef<ConversaItem | null>(null)
   useEffect(() => { selectedRef.current = selectedConversa })
+  const lastSeenRef = useRef<Record<string, string>>({})
+  const firstLoadRef = useRef(true)
+
+  // Beep curto via Web Audio API (sem precisar de arquivo de áudio)
+  function beep() {
+    try {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new Ctx()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain).connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = 880
+      gain.gain.setValueAtTime(0.001, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25)
+      osc.start()
+      osc.stop(ctx.currentTime + 0.3)
+      setTimeout(() => ctx.close(), 400)
+    } catch { /* navegador sem AudioContext */ }
+  }
+
+  function notify(conv: ConversaItem) {
+    try {
+      if (typeof Notification === 'undefined') return
+      if (Notification.permission !== 'granted') return
+      if (document.visibilityState === 'visible') return // não notifica se já tá olhando
+      const n = new Notification(`Nova mensagem — ${conv.nome}`, {
+        body: conv.ultima_msg?.slice(0, 120) ?? '',
+        tag: `flowvoz-${conv.session_id}-${conv.inbox ?? ''}`,
+      })
+      n.onclick = () => { window.focus(); n.close() }
+    } catch { /* silencioso */ }
+  }
+
+  // Pede permissão pra notificações na primeira interação
   useEffect(() => {
-    const id = setInterval(() => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => { /* ignora */ })
+    }
+  }, [])
+
+  useEffect(() => {
+    function refresh() {
       fetch('/api/conversas')
         .then(r => r.json())
-        .then((data: ConversaItem[]) => { if (Array.isArray(data)) setConversas(data) })
+        .then((data: ConversaItem[]) => {
+          if (!Array.isArray(data)) return
+          // Detectar mensagens novas comparando last_at por conversa
+          if (!firstLoadRef.current) {
+            for (const conv of data) {
+              const k = convKey(conv)
+              const prev = lastSeenRef.current[k]
+              const cur = conv.last_at ?? ''
+              if (conv.last_direction === 'in' && cur && cur !== prev) {
+                beep()
+                notify(conv)
+                break // 1 beep por ciclo
+              }
+            }
+          }
+          // Atualiza snapshot
+          const next: Record<string, string> = {}
+          for (const conv of data) next[convKey(conv)] = conv.last_at ?? ''
+          lastSeenRef.current = next
+          firstLoadRef.current = false
+          setConversas(data)
+        })
         .catch(() => { /* silencioso */ })
       const sel = selectedRef.current
       if (sel) {
@@ -186,7 +295,8 @@ function ConversasContent() {
           .then((data: Message[]) => { if (Array.isArray(data)) setMessages(data) })
           .catch(() => { /* silencioso */ })
       }
-    }, 5000)
+    }
+    const id = setInterval(refresh, 5000)
     return () => clearInterval(id)
   }, [])
 
@@ -288,9 +398,29 @@ function ConversasContent() {
     ? conversas
     : conversas.filter(c => c.inbox === selectedInbox)
 
+  // Busca (nome / número / última msg)
+  const searchTerm = search.trim().toLowerCase()
+  const byInboxAndSearch = searchTerm
+    ? byInbox.filter(c =>
+        c.nome.toLowerCase().includes(searchTerm) ||
+        c.session_id.toLowerCase().includes(searchTerm) ||
+        (c.ultima_msg ?? '').toLowerCase().includes(searchTerm)
+      )
+    : byInbox
+
   const filteredConversas = activeTab === 'todos'
-    ? byInbox
-    : byInbox.filter(c => (statusMap[convKey(c)] ?? c.status) === activeTab)
+    ? byInboxAndSearch
+    : byInboxAndSearch.filter(c => (statusMap[convKey(c)] ?? c.status) === activeTab)
+
+  // Não lidas: conversas onde a última mensagem é "in" E status != 'encerrado'
+  function isUnread(c: ConversaItem) {
+    const st = statusMap[convKey(c)] ?? c.status
+    return c.last_direction === 'in' && st !== 'encerrado'
+  }
+  const unreadByInbox: Record<string, number> = { todos: conversas.filter(isUnread).length }
+  for (const ib of inboxes) {
+    unreadByInbox[ib.key] = conversas.filter(c => c.inbox === ib.key && isUnread(c)).length
+  }
 
   const tabCounts = {
     todos:     byInbox.length,
@@ -321,26 +451,32 @@ function ConversasContent() {
 
       {/* ── Coluna esquerda: Lista de conversas ── */}
       <div className={`${selectedKey ? 'hidden md:flex' : 'flex'} w-full md:w-72 flex-shrink-0 border-r border-zinc-800 flex-col bg-zinc-900/50`}>
-        {/* Seletor de número */}
+        {/* Seletor de número + contador de não lidas */}
         {inboxes.length > 1 && (
           <div className="px-3 pt-3 pb-2 border-b border-zinc-800/60 flex flex-wrap gap-1.5">
             <button
               onClick={() => setSelectedInbox('todos')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
                 selectedInbox === 'todos' ? 'bg-zinc-100 text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
               }`}
             >
               Todos
+              {unreadByInbox.todos > 0 && (
+                <span className="ml-0.5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-4">{unreadByInbox.todos}</span>
+              )}
             </button>
             {inboxes.map(ib => (
               <button
                 key={ib.key}
                 onClick={() => setSelectedInbox(ib.key)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
                   selectedInbox === ib.key ? inboxColor(ib.cor) : 'bg-zinc-800 text-zinc-400 border-transparent hover:text-zinc-200'
                 }`}
               >
                 {ib.nome}
+                {(unreadByInbox[ib.key] ?? 0) > 0 && (
+                  <span className="ml-0.5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold leading-4">{unreadByInbox[ib.key]}</span>
+                )}
               </button>
             ))}
           </div>
@@ -350,6 +486,24 @@ function ConversasContent() {
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-base font-bold text-white">Conversas</h1>
             <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full">{byInbox.length}</span>
+          </div>
+          <div className="relative mb-2">
+            <svg className="w-3.5 h-3.5 text-zinc-600 absolute left-2.5 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Buscar por nome ou número…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-8 pr-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600 transition-colors"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300" title="Limpar">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            )}
           </div>
           <div className="flex flex-wrap gap-1">
             {tabs.map(tab => (
@@ -490,7 +644,10 @@ function ConversasContent() {
                       ) : (
                         <p>{msg.content}</p>
                       )}
-                      <p className={`text-[10px] mt-1 ${isOut ? 'text-violet-400/70 text-right' : 'text-zinc-600'}`}>{msg.hora}</p>
+                      <div className={`flex items-center gap-1 mt-1 ${isOut ? 'justify-end' : ''}`}>
+                        <p className={`text-[10px] ${isOut ? 'text-violet-400/70' : 'text-zinc-600'}`}>{msg.hora}</p>
+                        {isOut && <StatusTicks status={msg.status} />}
+                      </div>
                     </div>
                   </div>
                 )
@@ -531,18 +688,35 @@ function ConversasContent() {
         )}
       </div>
 
-      {/* ── Coluna direita: Painel de Áudios (escondida no mobile) ── */}
+      {/* ── Coluna direita: Áudios / Textos (escondida no mobile) ── */}
       <div className="hidden md:flex w-72 flex-shrink-0 border-l border-zinc-800 flex-col bg-zinc-900/50">
-        <div className="px-4 py-3 border-b border-zinc-800">
-          <div className="flex items-center gap-2 mb-2">
-            <svg className="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        {/* Tabs */}
+        <div className="px-3 pt-3 flex gap-1 border-b border-zinc-800">
+          <button
+            onClick={() => setRightTab('audios')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-t-lg text-xs font-semibold transition-colors ${rightTab === 'audios' ? 'bg-zinc-800 text-violet-300' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
               <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="23" />
-              <line x1="8" y1="23" x2="16" y2="23" />
             </svg>
-            <h2 className="text-sm font-bold text-white">Áudios Rápidos</h2>
-          </div>
+            Áudios
+          </button>
+          <button
+            onClick={() => setRightTab('textos')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-t-lg text-xs font-semibold transition-colors ${rightTab === 'textos' ? 'bg-zinc-800 text-violet-300' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            Textos
+          </button>
+        </div>
+
+        {rightTab === 'audios' ? (
+        <>
+        <div className="px-4 py-3 border-b border-zinc-800">
           <input
             type="text"
             placeholder="Buscar áudio…"
@@ -598,6 +772,31 @@ function ConversasContent() {
             )
           })}
         </div>
+        </>
+        ) : (
+        <>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+            {templates.length === 0 ? (
+              <div className="text-xs text-zinc-600 text-center py-8 px-4">
+                Nenhum template ainda.<br />
+                <a href="/templates" className="text-violet-400 hover:underline">Criar agora →</a>
+              </div>
+            ) : templates.map(t => (
+              <div key={t.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 hover:border-zinc-700 transition-colors">
+                <p className="text-xs font-semibold text-zinc-200 mb-1 truncate">{t.nome}</p>
+                <p className="text-[11px] text-zinc-500 line-clamp-2 whitespace-pre-wrap mb-2">{t.content}</p>
+                <button
+                  onClick={() => { setReplyText(t.content); showToast('Texto inserido — edite e envie.') }}
+                  disabled={!selectedConversa}
+                  className="w-full py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Inserir no chat
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+        )}
       </div>
     </div>
   )

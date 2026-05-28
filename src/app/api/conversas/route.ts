@@ -21,9 +21,10 @@ export async function GET(req: NextRequest) {
   try {
     if (sessionId) {
       // Mensagens de uma conversa (de um número específico se inbox vier)
-      const result = await db.query<{ id: string; direction: string; content: string; tipo: string; hora: string }>(
+      const result = await db.query<{ id: string; direction: string; content: string; tipo: string; hora: string; status: string | null }>(
         `SELECT id::text, direction, content, message_type AS tipo,
-                TO_CHAR(created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora
+                TO_CHAR(created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora,
+                status
          FROM messages
          WHERE session_id = $1 AND ($2::text IS NULL OR inbox = $2)
          ORDER BY created_at ASC
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
     // Lista de conversas — uma por (número, contato), ordenada pela mais recente
     const result = await db.query(`
       SELECT
-        session_id, inbox, inbox_nome, inbox_cor, nome, ultima_msg, hora, status
+        session_id, inbox, inbox_nome, inbox_cor, nome, ultima_msg, hora, status, last_direction, last_at
       FROM (
         SELECT DISTINCT ON (m.inbox, m.session_id)
           m.session_id,
@@ -47,6 +48,8 @@ export async function GET(req: NextRequest) {
           m.content AS ultima_msg,
           TO_CHAR(m.created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora,
           COALESCE(cs.status, 'novo') AS status,
+          m.direction AS last_direction,
+          m.created_at AS last_at,
           m.created_at AS _ts
         FROM messages m
         LEFT JOIN conversas_status cs ON cs.session_id = m.session_id AND cs.inbox = m.inbox
