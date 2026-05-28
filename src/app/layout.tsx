@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import UserBox from '@/components/UserBox'
+import LogoutButton from '@/components/LogoutButton'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -18,7 +18,6 @@ const navItems = [
   { href: '/audios',     label: 'Áudios',    icon: 'mic' },
   { href: '/templates',  label: 'Textos',    icon: 'doc' },
   { href: '/config',     label: 'Caixas',    icon: 'settings' },
-  { href: '/usuarios',   label: 'Usuários',  icon: 'users' },
   { href: '/auditoria',  label: 'Auditoria', icon: 'audit' },
 ]
 
@@ -56,16 +55,6 @@ function Icon({ name }: { name: string }) {
         <polyline points="14 2 14 8 20 8" />
         <line x1="9" y1="13" x2="15" y2="13" />
         <line x1="9" y1="17" x2="15" y2="17" />
-      </svg>
-    )
-  }
-  if (name === 'users') {
-    return (
-      <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
       </svg>
     )
   }
@@ -115,7 +104,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               ))}
             </nav>
             <div className="p-4 border-t border-zinc-800">
-              <UserBox companyName={process.env.NEXT_PUBLIC_COMPANY_NAME?.trim() || 'FlowVoz'} />
+              {(() => {
+                const companyName = process.env.NEXT_PUBLIC_COMPANY_NAME?.trim() || 'FlowVoz'
+                const initials = (companyName.match(/\b\w/g) ?? ['F']).join('').slice(0, 2).toUpperCase()
+                return (
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-violet-800 flex items-center justify-center text-xs font-bold text-white">{initials}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-zinc-100 truncate">{companyName}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                        <span className="text-[11px] text-zinc-500">Online</span>
+                      </div>
+                    </div>
+                    <LogoutButton />
+                  </div>
+                )
+              })()}
             </div>
           </aside>
 

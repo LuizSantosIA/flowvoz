@@ -8,7 +8,6 @@ function LoginForm() {
   const params = useSearchParams()
   const next = params.get('next') || '/conversas'
 
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -21,7 +20,7 @@ function LoginForm() {
       const r = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ password }),
       })
       if (r.ok) {
         router.replace(next)
@@ -46,20 +45,12 @@ function LoginForm() {
         </div>
 
         <form onSubmit={submit} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
-          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Email (opcional para admin)</label>
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            autoFocus
-            className="w-full px-3 py-2.5 mb-3 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600 transition-colors"
-            placeholder="seu@email.com"
-          />
-          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Senha</label>
+          <label className="block text-xs font-medium text-zinc-400 mb-1.5">Senha de acesso</label>
           <input
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
+            autoFocus
             className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600 transition-colors"
             placeholder="••••••••"
           />
