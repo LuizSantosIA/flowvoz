@@ -198,19 +198,33 @@ export default function AudiosPage() {
     if (!recordedBlob || !nome.trim()) { showToast('Grave um áudio e informe o nome.'); return }
     setUploading(true)
     try {
-      const ext = recordedBlob.type.includes('ogg') ? 'ogg' : recordedBlob.type.includes('mp4') ? 'm4a' : 'webm'
+      // Tipo do blob (ex: "audio/webm;codecs=opus") - normaliza pra evitar problemas no upload
+      const rawType = recordedBlob.type || 'audio/webm'
+      const cleanType = rawType.split(';')[0] // remove ";codecs=opus"
+      const ext = cleanType.includes('ogg') ? 'ogg' : cleanType.includes('mp4') || cleanType.includes('m4a') ? 'm4a' : 'webm'
+      console.log('[saveRecording] blob:', { size: recordedBlob.size, type: rawType, cleanType, ext, nome: nome.trim() })
+
+      const fileToSend = new File([recordedBlob], `gravacao.${ext}`, { type: cleanType })
       const form = new FormData()
-      form.append('file', new File([recordedBlob], `gravacao.${ext}`, { type: recordedBlob.type }))
+      form.append('file', fileToSend)
       form.append('nome', nome.trim())
+
       const r = await fetch('/api/audios', { method: 'POST', body: form })
+      const respText = await r.text()
+      let respJson: { ok?: boolean; error?: string; audio?: unknown } = {}
+      try { respJson = JSON.parse(respText) } catch { /* não era JSON */ }
+      console.log('[saveRecording] resposta:', r.status, respText)
+
       if (!r.ok) {
-        const d = await r.json().catch(() => ({}))
-        showToast(d.error || 'Falha ao salvar.')
+        showToast(respJson.error || `HTTP ${r.status} — abra F12 → Console`)
       } else {
         showToast('Áudio gravado salvo!')
         closeRec(); load()
       }
-    } catch { showToast('Falha de rede.') }
+    } catch (err) {
+      console.error('[saveRecording] exceção:', err)
+      showToast('Falha de rede. F12 → Console pra detalhes.')
+    }
     setUploading(false)
   }
 
