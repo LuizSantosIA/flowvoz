@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { resolveInbox } from '@/lib/inboxes'
 import { sendText, sendAudio } from '@/lib/whatsapp'
 import { logAudit } from '@/lib/audit'
+import { getCurrentUser } from '@/lib/session'
 
 /** Converte erros técnicos em mensagens amigáveis pro atendente */
 function friendlyError(msg: string): string {
@@ -47,11 +48,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: friendlyError(raw) }, { status: 502 })
   }
 
-  // Sucesso: registra no DB com external_id, status='sent' e (se áudio) audio_id
+  // Sucesso: registra no DB com external_id, status='sent', audio_id e user_id (quem enviou)
+  const me = await getCurrentUser(req)
   try {
     await db.query(
-      `INSERT INTO messages (session_id, content, message_type, direction, inbox, external_id, status, audio_id)
-       VALUES ($1,$2,$3,'out',$4,$5,'sent',$6)`,
+      `INSERT INTO messages (session_id, content, message_type, direction, inbox, external_id, status, audio_id, user_id)
+       VALUES ($1,$2,$3,'out',$4,$5,'sent',$6,$7)`,
       [
         session_id,
         tipo === 'audio' ? '[Áudio enviado]' : content,
@@ -59,6 +61,7 @@ export async function POST(req: NextRequest) {
         target.key,
         externalId ?? null,
         tipo === 'audio' && typeof audio_id === 'number' ? audio_id : null,
+        me?.id ?? null,
       ]
     )
   } catch { /* ignora se DB offline */ }
