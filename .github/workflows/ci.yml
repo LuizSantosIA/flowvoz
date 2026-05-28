@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Lint + Type-check + Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (Next.js inclui type-check e lint)
+        run: npm run build
+        env:
+          # Variáveis dummy só pra build não reclamar — nada conecta de verdade aqui.
+          NEXT_TELEMETRY_DISABLED: '1'
+
+      - name: Run unit tests
+        run: npm test --if-present

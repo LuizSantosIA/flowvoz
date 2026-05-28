@@ -4,6 +4,7 @@ import { resolveInbox } from '@/lib/inboxes'
 import { sendText, sendAudio } from '@/lib/whatsapp'
 import { logAudit } from '@/lib/audit'
 import { getCurrentUser } from '@/lib/session'
+import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 
 /** Converte erros técnicos em mensagens amigáveis pro atendente */
 function friendlyError(msg: string): string {
@@ -18,6 +19,14 @@ function friendlyError(msg: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Rate limit: 60 envios/min por usuário (ou IP, se sessão legacy)
+  const me0 = await getCurrentUser(req)
+  const limitKey = `send:${me0?.id ?? clientIp(req)}`
+  const rl = await checkRateLimit(limitKey, { max: 60, windowSec: 60, cleanup: true })
+  if (!rl.allowed) {
+    return NextResponse.json({ ok: false, error: 'Muitos envios em pouco tempo. Aguarde 1 minuto.' }, { status: 429 })
+  }
+
   const { session_id, tipo, content, audio_url, audio_id, inbox } = await req.json()
 
   if (!session_id) {
@@ -49,7 +58,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Sucesso: registra no DB com external_id, status='sent', audio_id e user_id (quem enviou)
-  const me = await getCurrentUser(req)
+  const me = me0
   try {
     await db.query(
       `INSERT INTO messages (session_id, content, message_type, direction, inbox, external_id, status, audio_id, user_id)

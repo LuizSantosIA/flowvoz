@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { verifyPassword, signSession } from '@/lib/auth'
+import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 
 interface UserRow {
   id: number
@@ -22,6 +23,13 @@ function setSessionCookie(res: NextResponse, token: string) {
 }
 
 export async function POST(req: NextRequest) {
+  // Anti brute-force: 10 tentativas por IP a cada 5 minutos
+  const ip = clientIp(req)
+  const rl = await checkRateLimit(`login:${ip}`, { max: 10, windowSec: 300, cleanup: true })
+  if (!rl.allowed) {
+    return NextResponse.json({ ok: false, error: 'Muitas tentativas. Tente de novo em alguns minutos.' }, { status: 429 })
+  }
+
   const { email, password } = await req.json().catch(() => ({ email: '', password: '' }))
 
   if (typeof password !== 'string' || !password) {
