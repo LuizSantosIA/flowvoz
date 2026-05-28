@@ -33,23 +33,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(result.rows)
     }
 
-    // Lista de conversas — uma por (número, contato)
+    // Lista de conversas — uma por (número, contato), ordenada pela mais recente
     const result = await db.query(`
-      SELECT DISTINCT ON (m.inbox, m.session_id)
-        m.session_id,
-        m.inbox,
-        COALESCE(ib.nome, m.inbox, 'Sem número') AS inbox_nome,
-        COALESCE(ib.cor, 'zinc') AS inbox_cor,
-        COALESCE(m.contact_name, m.session_id) AS nome,
-        m.content AS ultima_msg,
-        TO_CHAR(m.created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora,
-        COALESCE(cs.status, 'novo') AS status
-      FROM messages m
-      LEFT JOIN conversas_status cs ON cs.session_id = m.session_id
-      LEFT JOIN inboxes ib ON ib.key = m.inbox
-      WHERE m.created_at >= NOW() - INTERVAL '24 hours'
-        AND ($1::text IS NULL OR m.inbox = $1)
-      ORDER BY m.inbox, m.session_id, m.created_at DESC
+      SELECT
+        session_id, inbox, inbox_nome, inbox_cor, nome, ultima_msg, hora, status
+      FROM (
+        SELECT DISTINCT ON (m.inbox, m.session_id)
+          m.session_id,
+          m.inbox,
+          COALESCE(ib.nome, m.inbox, 'Sem número') AS inbox_nome,
+          COALESCE(ib.cor, 'zinc') AS inbox_cor,
+          COALESCE(m.contact_name, m.session_id) AS nome,
+          m.content AS ultima_msg,
+          TO_CHAR(m.created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora,
+          COALESCE(cs.status, 'novo') AS status,
+          m.created_at AS _ts
+        FROM messages m
+        LEFT JOIN conversas_status cs ON cs.session_id = m.session_id AND cs.inbox = m.inbox
+        LEFT JOIN inboxes ib ON ib.key = m.inbox
+        WHERE m.created_at >= NOW() - INTERVAL '30 days'
+          AND ($1::text IS NULL OR m.inbox = $1)
+        ORDER BY m.inbox, m.session_id, m.created_at DESC
+      ) t
+      ORDER BY t._ts DESC
       LIMIT 200
     `, [inbox])
     return NextResponse.json(result.rows)
@@ -60,29 +66,31 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  // Assumir atendimento
-  const { session_id } = await req.json()
+  // Assumir atendimento (status independente por número/caixa)
+  const { session_id, inbox } = await req.json()
+  const inboxKey = inbox ?? ''
   try {
     await db.query(
-      `INSERT INTO conversas_status (session_id, status, updated_at)
-       VALUES ($1, 'andamento', NOW())
-       ON CONFLICT (session_id)
+      `INSERT INTO conversas_status (session_id, inbox, status, updated_at)
+       VALUES ($1, $2, 'andamento', NOW())
+       ON CONFLICT (session_id, inbox)
        DO UPDATE SET status = 'andamento', updated_at = NOW()`,
-      [session_id]
+      [session_id, inboxKey]
     )
   } catch { /* silencioso */ }
   return NextResponse.json({ ok: true })
 }
 
 export async function PATCH(req: NextRequest) {
-  const { session_id, status } = await req.json()
+  const { session_id, inbox, status } = await req.json()
+  const inboxKey = inbox ?? ''
   try {
     await db.query(
-      `INSERT INTO conversas_status (session_id, status, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (session_id)
+      `INSERT INTO conversas_status (session_id, inbox, status, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (session_id, inbox)
        DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()`,
-      [session_id, status]
+      [session_id, inboxKey, status]
     )
     return NextResponse.json({ ok: true })
   } catch {

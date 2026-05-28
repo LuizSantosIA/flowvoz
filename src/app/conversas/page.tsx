@@ -205,7 +205,7 @@ function ConversasContent() {
       await fetch('/api/conversas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedConversa.session_id }),
+        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox }),
       })
     } catch { /* silencioso */ }
     setStatusMap(prev => ({ ...prev, [selectedKey!]: 'andamento' }))
@@ -219,7 +219,7 @@ function ConversasContent() {
       await fetch('/api/conversas', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedConversa.session_id, status: 'encerrado' }),
+        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, status: 'encerrado' }),
       })
     } catch { /* silencioso */ }
     showToast('Conversa encerrada.')
@@ -230,14 +230,25 @@ function ConversasContent() {
     setSendingMsg(true)
     const text = replyText.trim()
     setReplyText('')
-    setMessages(prev => [...prev, { id: Date.now().toString(), direction: 'out', content: text, tipo: 'text', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
+    const optimisticId = `tmp-${Date.now()}`
+    setMessages(prev => [...prev, { id: optimisticId, direction: 'out', content: text, tipo: 'text', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
     try {
-      await fetch('/api/send', {
+      const r = await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tipo: 'text', content: text }),
       })
-    } catch { /* silencioso */ }
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        showToast(data.error || 'Falha ao enviar mensagem.')
+        setMessages(prev => prev.filter(m => m.id !== optimisticId))
+        setReplyText(text) // devolve o texto pro input
+      }
+    } catch {
+      showToast('Falha de rede. Tente de novo.')
+      setMessages(prev => prev.filter(m => m.id !== optimisticId))
+      setReplyText(text)
+    }
     setSendingMsg(false)
   }
 
@@ -246,16 +257,21 @@ function ConversasContent() {
     setSendingAudio(audio.id)
     const audioUrl = audio.audio_url || `/audios/${audio.filename}`
     try {
-      await fetch('/api/send', {
+      const r = await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tipo: 'audio', audio_url: audioUrl }),
       })
-      setMessages(prev => [...prev, { id: Date.now().toString(), direction: 'out', content: audio.nome, tipo: 'audio', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
-      setSentAudio(audio.id)
-      setTimeout(() => setSentAudio(null), 2000)
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}))
+        showToast(data.error || 'Falha ao enviar áudio.')
+      } else {
+        setMessages(prev => [...prev, { id: Date.now().toString(), direction: 'out', content: audio.nome, tipo: 'audio', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
+        setSentAudio(audio.id)
+        setTimeout(() => setSentAudio(null), 2000)
+      }
     } catch {
-      showToast('Erro ao enviar áudio')
+      showToast('Falha de rede ao enviar áudio.')
     }
     setSendingAudio(null)
   }
@@ -304,7 +320,7 @@ function ConversasContent() {
       )}
 
       {/* ── Coluna esquerda: Lista de conversas ── */}
-      <div className="w-72 flex-shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/50">
+      <div className={`${selectedKey ? 'hidden md:flex' : 'flex'} w-full md:w-72 flex-shrink-0 border-r border-zinc-800 flex-col bg-zinc-900/50`}>
         {/* Seletor de número */}
         {inboxes.length > 1 && (
           <div className="px-3 pt-3 pb-2 border-b border-zinc-800/60 flex flex-wrap gap-1.5">
@@ -396,7 +412,7 @@ function ConversasContent() {
       </div>
 
       {/* ── Coluna central: Chat ── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className={`${selectedKey ? 'flex' : 'hidden md:flex'} flex-1 flex-col overflow-hidden`}>
         {!selectedConversa ? (
           <div className="flex-1 flex flex-col items-center justify-center text-zinc-600">
             <svg className="w-12 h-12 mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -409,6 +425,15 @@ function ConversasContent() {
             {/* Chat header */}
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-zinc-800 bg-zinc-900/60 flex-shrink-0">
               <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSelectedKey(null)}
+                  title="Voltar"
+                  className="md:hidden p-1 -ml-1 text-zinc-400 hover:text-zinc-100 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
+                </button>
                 <div className="w-9 h-9 rounded-full bg-violet-800/40 flex items-center justify-center text-xs font-bold text-violet-300">
                   {selectedConversa.nome.charAt(0).toUpperCase()}
                 </div>
@@ -474,7 +499,7 @@ function ConversasContent() {
             </div>
 
             {/* Input */}
-            <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-900/40 flex-shrink-0">
+            <div className="px-5 py-3 pb-20 md:pb-3 border-t border-zinc-800 bg-zinc-900/40 flex-shrink-0">
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -506,8 +531,8 @@ function ConversasContent() {
         )}
       </div>
 
-      {/* ── Coluna direita: Painel de Áudios ── */}
-      <div className="w-72 flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-900/50">
+      {/* ── Coluna direita: Painel de Áudios (escondida no mobile) ── */}
+      <div className="hidden md:flex w-72 flex-shrink-0 border-l border-zinc-800 flex-col bg-zinc-900/50">
         <div className="px-4 py-3 border-b border-zinc-800">
           <div className="flex items-center gap-2 mb-2">
             <svg className="w-4 h-4 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

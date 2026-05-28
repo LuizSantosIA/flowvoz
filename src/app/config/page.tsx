@@ -1,229 +1,170 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-sm font-semibold text-zinc-300 flex items-center gap-2 mb-4">
-      <span className="w-1 h-4 bg-violet-500 rounded-full inline-block" />
-      {children}
-    </h2>
-  )
+interface Inbox {
+  key: string
+  nome: string
+  provider: 'evolution' | 'meta' | string
+  cor: string
+  ativo: boolean
+  ordem: number
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return <label className="block text-xs font-medium text-zinc-400 mb-1.5">{children}</label>
-}
-
-function Input({
-  type = 'text',
-  placeholder,
-  value,
-  onChange,
-}: {
-  type?: string
-  placeholder?: string
-  value: string
-  onChange: (v: string) => void
-}) {
-  return (
-    <input
-      type={type}
-      placeholder={placeholder}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600 transition-colors"
-    />
-  )
-}
-
-function PasswordField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  const [show, setShow] = useState(false)
-  return (
-    <div>
-      <Label>{label}</Label>
-      <div className="relative">
-        <input
-          type={show ? 'text' : 'password'}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className="w-full px-3 py-2.5 pr-10 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600 transition-colors"
-          placeholder="••••••••••••"
-        />
-        <button
-          type="button"
-          onClick={() => setShow(s => !s)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
-        >
-          {show ? (
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-              <line x1="1" y1="1" x2="23" y2="23" />
-            </svg>
-          ) : (
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          )}
-        </button>
-      </div>
-    </div>
-  )
-}
+const COLORS: { key: string; label: string; classes: string }[] = [
+  { key: 'violet',  label: 'Violeta', classes: 'bg-violet-500'  },
+  { key: 'emerald', label: 'Verde',   classes: 'bg-emerald-500' },
+  { key: 'blue',    label: 'Azul',    classes: 'bg-blue-500'    },
+  { key: 'amber',   label: 'Âmbar',   classes: 'bg-amber-500'   },
+  { key: 'rose',    label: 'Rosa',    classes: 'bg-rose-500'    },
+  { key: 'zinc',    label: 'Cinza',   classes: 'bg-zinc-500'    },
+]
 
 export default function ConfigPage() {
-  // Evolution API
-  const [evoUrl, setEvoUrl] = useState('')
-  const [evoInstance, setEvoInstance] = useState('')
-  const [evoApikey, setEvoApikey] = useState('')
-
-  // Meta API
-  const [metaToken, setMetaToken] = useState('')
-  const [metaPhoneId, setMetaPhoneId] = useState('')
-  const [metaVerifyToken, setMetaVerifyToken] = useState('')
-
-  // Geral
-  const [empresa, setEmpresa] = useState('')
-  const [atendente, setAtendente] = useState('')
-
-  // Provedor
-  const [provider, setProvider] = useState<'evolution' | 'meta'>('evolution')
+  const [inboxes, setInboxes] = useState<Inbox[]>([])
+  const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [editingNome, setEditingNome] = useState<string | null>(null)
+  const [nomeBuffer, setNomeBuffer] = useState('')
 
   function showToast(msg: string) {
     setToast(msg)
-    setTimeout(() => setToast(''), 3000)
+    setTimeout(() => setToast(''), 2500)
   }
 
-  async function handleSave() {
-    setSaving(true)
+  function load() {
+    fetch('/api/inboxes?all=true')
+      .then(r => r.json())
+      .then((data: Inbox[]) => { if (Array.isArray(data)) setInboxes(data); setLoading(false) })
+      .catch(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  async function update(key: string, patch: Partial<Inbox>) {
+    // otimista
+    setInboxes(prev => prev.map(ib => ib.key === key ? { ...ib, ...patch } : ib))
     try {
-      await fetch('/api/config', {
-        method: 'POST',
+      const r = await fetch('/api/inboxes', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ evoUrl, evoInstance, evoApikey, metaToken, metaPhoneId, metaVerifyToken, empresa, atendente, provider }),
+        body: JSON.stringify({ key, ...patch }),
       })
-      showToast('Configurações salvas com sucesso!')
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        showToast(d.error || 'Falha ao salvar.')
+        load() // recarrega pra reverter
+      }
     } catch {
-      showToast('Configurações salvas localmente.')
+      showToast('Falha de rede.')
+      load()
     }
-    setSaving(false)
+  }
+
+  function startEditNome(ib: Inbox) {
+    setEditingNome(ib.key)
+    setNomeBuffer(ib.nome)
+  }
+
+  function commitNome(key: string) {
+    const novo = nomeBuffer.trim()
+    setEditingNome(null)
+    if (!novo) return
+    update(key, { nome: novo })
+    showToast('Nome atualizado.')
   }
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#09090b]">
-      {/* Toast */}
       {toast && (
-        <div className="fixed top-5 right-5 z-50 bg-green-900/80 border border-green-700 text-green-100 text-sm px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+        <div className="fixed top-5 right-5 z-50 bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm px-4 py-2.5 rounded-xl shadow-xl">
           {toast}
         </div>
       )}
 
-      {/* Header */}
       <div className="sticky top-0 z-10 bg-[#09090b]/90 backdrop-blur border-b border-zinc-800 px-6 py-4">
-        <h1 className="text-xl font-bold text-white">Configurações</h1>
-        <p className="text-xs text-zinc-500">Gerencie as integrações do painel de atendimento</p>
+        <h1 className="text-xl font-bold text-white flex items-center gap-2">
+          <svg className="w-5 h-5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          Caixas de WhatsApp
+        </h1>
+        <p className="text-xs text-zinc-500 mt-0.5">
+          Renomeie, troque a cor da etiqueta e ative/desative cada número conectado.
+        </p>
       </div>
 
-      <div className="p-6 max-w-2xl space-y-6">
+      <div className="p-6 space-y-3 max-w-3xl">
+        {loading ? (
+          <div className="text-center text-zinc-600 text-sm py-12">Carregando…</div>
+        ) : inboxes.length === 0 ? (
+          <div className="text-center text-zinc-500 text-sm py-12 border border-dashed border-zinc-800 rounded-2xl">
+            Nenhuma caixa cadastrada ainda.<br />
+            Caixas aparecem aqui automaticamente quando o primeiro recebimento chega de um número.
+          </div>
+        ) : inboxes.map(ib => (
+          <div key={ib.key} className={`bg-zinc-900 border rounded-2xl p-5 transition-colors ${ib.ativo ? 'border-zinc-800' : 'border-zinc-800 opacity-60'}`}>
+            <div className="flex items-start justify-between gap-4">
+              {/* Esquerda: identidade */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  {editingNome === ib.key ? (
+                    <input
+                      autoFocus
+                      value={nomeBuffer}
+                      onChange={e => setNomeBuffer(e.target.value)}
+                      onBlur={() => commitNome(ib.key)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') commitNome(ib.key)
+                        if (e.key === 'Escape') setEditingNome(null)
+                      }}
+                      className="px-2 py-1 bg-zinc-800 border border-violet-600 rounded-lg text-sm text-zinc-100 focus:outline-none w-56"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => startEditNome(ib)}
+                      title="Renomear"
+                      className="text-base font-semibold text-zinc-100 hover:text-violet-300 transition-colors"
+                    >
+                      {ib.nome}
+                    </button>
+                  )}
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${ib.provider === 'meta' ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-zinc-700/40 text-zinc-400 border-zinc-600/40'}`}>
+                    {ib.provider === 'meta' ? 'Meta (oficial)' : 'Evolution'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-500 font-mono truncate">id: {ib.key}</p>
+              </div>
 
-        {/* Provedor ativo — toggle */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-          <SectionTitle>Provedor WhatsApp</SectionTitle>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-zinc-400">Provedor ativo:</span>
-            <div className="flex items-center bg-zinc-800 rounded-xl p-1 gap-1">
+              {/* Direita: toggle ativo */}
               <button
-                onClick={() => setProvider('evolution')}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  provider === 'evolution'
-                    ? 'bg-violet-600 text-white shadow'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
+                onClick={() => update(ib.key, { ativo: !ib.ativo })}
+                title={ib.ativo ? 'Desativar' : 'Ativar'}
+                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${ib.ativo ? 'bg-emerald-600' : 'bg-zinc-700'}`}
               >
-                Evolution
-              </button>
-              <button
-                onClick={() => setProvider('meta')}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  provider === 'meta'
-                    ? 'bg-violet-600 text-white shadow'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                Meta
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${ib.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </button>
             </div>
-          </div>
-          <p className="text-[11px] text-zinc-600">
-            A troca de provedor é aplicada via variável <code className="bg-zinc-800 px-1 rounded text-violet-400">WA_PROVIDER</code> no .env.local
-          </p>
-        </div>
 
-        {/* Evolution API */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-          <SectionTitle>Evolution API</SectionTitle>
-          <div>
-            <Label>URL da instância</Label>
-            <Input placeholder="https://sua-evolution.com" value={evoUrl} onChange={setEvoUrl} />
+            {/* Seletor de cor */}
+            <div className="mt-4 flex items-center gap-2">
+              <span className="text-[11px] text-zinc-500">Cor da etiqueta:</span>
+              {COLORS.map(c => (
+                <button
+                  key={c.key}
+                  onClick={() => update(ib.key, { cor: c.key })}
+                  title={c.label}
+                  className={`w-5 h-5 rounded-full ${c.classes} transition-transform hover:scale-110 ${ib.cor === c.key ? 'ring-2 ring-offset-2 ring-offset-zinc-900 ring-white' : ''}`}
+                />
+              ))}
+            </div>
           </div>
-          <div>
-            <Label>Nome da instância</Label>
-            <Input placeholder="nome-instancia" value={evoInstance} onChange={setEvoInstance} />
-          </div>
-          <PasswordField label="API Key" value={evoApikey} onChange={setEvoApikey} />
-        </div>
+        ))}
 
-        {/* Meta API */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-          <SectionTitle>Meta Business API</SectionTitle>
-          <PasswordField label="Token de acesso" value={metaToken} onChange={setMetaToken} />
-          <div>
-            <Label>Phone Number ID</Label>
-            <Input placeholder="1234567890" value={metaPhoneId} onChange={setMetaPhoneId} />
-          </div>
-          <div>
-            <Label>Verify Token (webhook)</Label>
-            <Input placeholder="meu-token-seguro" value={metaVerifyToken} onChange={setMetaVerifyToken} />
-          </div>
+        <div className="mt-6 text-[11px] text-zinc-600 text-center">
+          As caixas são cadastradas automaticamente quando um número recebe a primeira mensagem.
         </div>
-
-        {/* Geral */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-          <SectionTitle>Geral</SectionTitle>
-          <div>
-            <Label>Nome da empresa</Label>
-            <Input placeholder="Venda Direta MG" value={empresa} onChange={setEmpresa} />
-          </div>
-          <div>
-            <Label>Nome do atendente</Label>
-            <Input placeholder="João Silva" value={atendente} onChange={setAtendente} />
-          </div>
-        </div>
-
-        {/* Save */}
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full py-3 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 active:scale-[0.98] text-white font-semibold rounded-xl transition-all text-sm flex items-center justify-center gap-2"
-        >
-          {saving ? (
-            <>
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-              </svg>
-              Salvando…
-            </>
-          ) : (
-            'Salvar configurações'
-          )}
-        </button>
       </div>
     </div>
   )

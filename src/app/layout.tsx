@@ -14,6 +14,7 @@ export const metadata: Metadata = {
 const navItems = [
   { href: '/conversas', label: 'Conversas', icon: 'message' },
   { href: '/audios',    label: 'Áudios',    icon: 'mic' },
+  { href: '/config',    label: 'Caixas',    icon: 'settings' },
 ]
 
 function Icon({ name }: { name: string }) {
@@ -70,17 +71,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               ))}
             </nav>
             <div className="p-4 border-t border-zinc-800">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-violet-800 flex items-center justify-center text-xs font-bold text-white">VD</div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold text-zinc-100 truncate">Venda Direta MG</div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                    <span className="text-[11px] text-zinc-500">Online</span>
+              {(() => {
+                const companyName = process.env.NEXT_PUBLIC_COMPANY_NAME?.trim() || 'FlowVoz'
+                const initials = (companyName.match(/\b\w/g) ?? ['F']).join('').slice(0, 2).toUpperCase()
+                return (
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-violet-800 flex items-center justify-center text-xs font-bold text-white">{initials}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-zinc-100 truncate">{companyName}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                        <span className="text-[11px] text-zinc-500">Online</span>
+                      </div>
+                    </div>
+                    <LogoutButton />
                   </div>
-                </div>
-                <LogoutButton />
-              </div>
+                )
+              })()}
             </div>
           </aside>
 
