@@ -447,14 +447,15 @@ function ConversasContent() {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch (err) {
       const e = err as { name?: string; message?: string }
+      console.error('[microfone] erro getUserMedia:', e.name, e.message, err)
       if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-        showToast('Você negou o acesso ao microfone. Libere no cadeado da URL.')
+        showToast('Acesso bloqueado. Confira: cadeado da URL + Windows → Privacidade → Microfone (F12 pra ver o erro exato).')
       } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
         showToast('Nenhum microfone encontrado no computador.')
       } else if (e.name === 'NotReadableError') {
         showToast('Microfone em uso por outro programa.')
       } else {
-        showToast('Não foi possível acessar o microfone.')
+        showToast(`Erro: ${e.name ?? 'desconhecido'} — abra F12 → Console pra detalhes.`)
       }
       return
     }
