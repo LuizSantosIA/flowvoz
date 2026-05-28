@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { logAudit } from '@/lib/audit'
+import { requireAdmin } from '@/lib/session'
 
 interface Inbox {
   key: string
@@ -34,6 +35,7 @@ export async function GET(req: NextRequest) {
 
 // Atualizar uma caixa: nome, cor, ativo, ordem
 export async function PATCH(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { key, nome, cor, ativo, ordem } = await req.json()
   if (!key || typeof key !== 'string') {
     return NextResponse.json({ ok: false, error: 'key é obrigatório' }, { status: 400 })

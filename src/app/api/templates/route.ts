@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdmin } from '@/lib/session'
 
 interface Template {
   id: number
@@ -20,6 +21,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { nome, content, ordem } = await req.json()
   if (!nome?.trim() || !content?.trim()) {
     return NextResponse.json({ ok: false, error: 'Nome e conteúdo são obrigatórios.' }, { status: 400 })
@@ -36,6 +38,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { id, nome, content, ordem } = await req.json()
   if (!id) return NextResponse.json({ ok: false, error: 'id obrigatório' }, { status: 400 })
 
@@ -57,6 +60,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ ok: false, error: 'id obrigatório' }, { status: 400 })

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { put, del } from '@vercel/blob'
 import { db } from '@/lib/db'
+import { requireAdmin } from '@/lib/session'
 
 const MOCK_AUDIOS = [
   { id:  1, nome: 'Saudação inicial',           filename: 'audio-01.ogg', enviados_hoje: 12 },
@@ -36,6 +37,7 @@ export async function GET() {
  *  - application/json com { nome, filename, audio_url } → INSERT direto (admin/manual)
  */
 export async function POST(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const ctype = req.headers.get('content-type') ?? ''
 
   // ── Upload via multipart ───────────────────────────────────────────────────
@@ -98,6 +100,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { id, nome, ordem } = await req.json()
   const sets: string[] = []
   const vals: unknown[] = []
@@ -115,6 +118,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ ok: false, error: 'id obrigatório' }, { status: 400 })

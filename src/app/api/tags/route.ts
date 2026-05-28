@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireAdmin } from '@/lib/session'
 
 interface Tag {
   id: number
@@ -18,6 +19,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { nome, cor, ordem } = await req.json()
   if (!nome?.trim()) return NextResponse.json({ ok: false, error: 'Nome obrigatório.' }, { status: 400 })
   try {
@@ -34,6 +36,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { id, nome, cor, ordem } = await req.json()
   if (!id) return NextResponse.json({ ok: false, error: 'id obrigatório' }, { status: 400 })
 
@@ -55,6 +58,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const guard = await requireAdmin(req); if ('error' in guard) return guard.error
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return NextResponse.json({ ok: false, error: 'id obrigatório' }, { status: 400 })

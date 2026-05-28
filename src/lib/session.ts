@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { verifySession } from './auth'
 import { db } from './db'
 
@@ -31,4 +31,13 @@ export async function getCurrentUser(req: NextRequest): Promise<CurrentUser | nu
   } catch {
     return null
   }
+}
+
+/** Guarda admin reutilizável em rotas API.
+ *  Retorna { error: NextResponse } se não for admin; senão { me } com o usuário atual. */
+export async function requireAdmin(req: NextRequest): Promise<{ me: CurrentUser } | { error: NextResponse }> {
+  const me = await getCurrentUser(req)
+  if (!me) return { error: NextResponse.json({ ok: false, error: 'Não autenticado.' }, { status: 401 }) }
+  if (me.role !== 'admin') return { error: NextResponse.json({ ok: false, error: 'Apenas admin.' }, { status: 403 }) }
+  return { me }
 }
