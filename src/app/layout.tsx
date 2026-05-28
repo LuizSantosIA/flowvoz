@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import LogoutButton from '@/components/LogoutButton'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -11,9 +12,8 @@ export const metadata: Metadata = {
 }
 
 const navItems = [
-  { href: '/conversas', label: 'Conversas', icon: 'message', live: true },
+  { href: '/conversas', label: 'Conversas', icon: 'message' },
   { href: '/audios',    label: 'Áudios',    icon: 'mic' },
-  { href: '/config',   label: 'Config',    icon: 'settings' },
 ]
 
 function Icon({ name }: { name: string }) {
@@ -66,12 +66,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   className="flex items-center gap-3 px-4 py-3 rounded-r-lg text-sm font-medium text-zinc-400 hover:bg-violet-500/10 hover:text-zinc-100 transition-all border-l-[3px] border-transparent hover:border-violet-500">
                   <Icon name={item.icon} />
                   {item.label}
-                  {item.live && (
-                    <span className="ml-auto flex items-center gap-1.5">
-                      <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                      <span className="text-xs text-green-400 font-medium">3</span>
-                    </span>
-                  )}
                 </Link>
               ))}
             </nav>
@@ -85,6 +79,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     <span className="text-[11px] text-zinc-500">Online</span>
                   </div>
                 </div>
+                <LogoutButton />
               </div>
             </div>
           </aside>

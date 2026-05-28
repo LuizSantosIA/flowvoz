@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
 export async function POST(req: NextRequest) {
+  // Protege o webhook: exige ?secret=WEBHOOK_SECRET (ou header X-Webhook-Secret).
+  // Se WEBHOOK_SECRET não estiver configurado no env, o webhook fica aberto (modo dev).
+  const expected = process.env.WEBHOOK_SECRET
+  if (expected) {
+    const url = new URL(req.url)
+    const got = url.searchParams.get('secret') ?? req.headers.get('x-webhook-secret') ?? ''
+    if (got !== expected) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
   const body = await req.json()
   const data = body?.data
 

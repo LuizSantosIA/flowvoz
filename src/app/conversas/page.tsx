@@ -168,6 +168,28 @@ function ConversasContent() {
       .catch(() => { setMessages([]); setLoadingMsgs(false) })
   }, [selectedKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Polling 5s: atualiza lista e mensagens sem precisar de F5 ──
+  const selectedRef = useRef<ConversaItem | null>(null)
+  useEffect(() => { selectedRef.current = selectedConversa })
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetch('/api/conversas')
+        .then(r => r.json())
+        .then((data: ConversaItem[]) => { if (Array.isArray(data)) setConversas(data) })
+        .catch(() => { /* silencioso */ })
+      const sel = selectedRef.current
+      if (sel) {
+        const q = new URLSearchParams({ session_id: sel.session_id })
+        if (sel.inbox) q.set('inbox', sel.inbox)
+        fetch(`/api/conversas?${q.toString()}`)
+          .then(r => r.json())
+          .then((data: Message[]) => { if (Array.isArray(data)) setMessages(data) })
+          .catch(() => { /* silencioso */ })
+      }
+    }, 5000)
+    return () => clearInterval(id)
+  }, [])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
