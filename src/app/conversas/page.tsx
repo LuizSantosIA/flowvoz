@@ -431,8 +431,47 @@ function ConversasContent() {
   }
   async function startRecording() {
     if (!selectedConversa) { showToast('Selecione uma conversa primeiro'); return }
+
+    // 1) Verifica se o navegador suporta gravação
+    if (typeof window === 'undefined' || !window.isSecureContext) {
+      showToast('Gravação só funciona em HTTPS.'); return
+    }
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      showToast('Seu navegador não suporta gravação de áudio.'); return
+    }
+
+    // 2) Verifica se a permissão já foi negada antes (silenciosa)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const nav = navigator as Navigator & { permissions?: { query: (q: { name: PermissionName }) => Promise<PermissionStatus> } }
+      if (nav.permissions?.query) {
+        const status = await nav.permissions.query({ name: 'microphone' as PermissionName })
+        if (status.state === 'denied') {
+          showToast('Microfone bloqueado. Clique no cadeado da URL → libere o microfone → recarregue.')
+          return
+        }
+      }
+    } catch { /* Permissions API indisponível, segue normal */ }
+
+    // 3) Pede acesso ao microfone (browser exibe o popup se ainda não foi decidido)
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (err) {
+      const e = err as { name?: string; message?: string }
+      if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+        showToast('Você negou o acesso ao microfone. Libere no cadeado da URL.')
+      } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
+        showToast('Nenhum microfone encontrado no computador.')
+      } else if (e.name === 'NotReadableError') {
+        showToast('Microfone em uso por outro programa.')
+      } else {
+        showToast('Não foi possível acessar o microfone.')
+      }
+      return
+    }
+
+    // 4) Inicia a gravação
+    try {
       recordStreamRef.current = stream
       const mime = pickMime()
       const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
@@ -453,7 +492,8 @@ function ConversasContent() {
       if (recordTimerRef.current) clearInterval(recordTimerRef.current)
       recordTimerRef.current = setInterval(() => setRecordTime(t => t + 1), 1000)
     } catch {
-      showToast('Permita o acesso ao microfone no navegador.')
+      stream.getTracks().forEach(t => t.stop())
+      showToast('Erro ao iniciar a gravação.')
     }
   }
   function stopRecording() {
