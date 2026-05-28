@@ -162,6 +162,7 @@ function ConversasContent() {
   const [mobileShortcutsOpen, setMobileShortcutsOpen] = useState(false)
   const [sendingAudio, setSendingAudio] = useState<number | null>(null)
   const [sentAudio, setSentAudio] = useState<number | null>(null)
+  const [playingAudioId, setPlayingAudioId] = useState<number | null>(null)
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -443,9 +444,19 @@ function ConversasContent() {
     setSendingAudio(null)
   }
 
-  function playAudio(audio: Audio) {
+  function togglePlay(audio: Audio) {
     const el = audioRefs.current[audio.id]
-    if (el) { el.currentTime = 0; el.play() }
+    if (!el) return
+    // Se já está tocando esse → pausa
+    if (playingAudioId === audio.id) {
+      el.pause()
+      setPlayingAudioId(null)
+      return
+    }
+    // Pausa qualquer outro áudio que esteja tocando
+    Object.values(audioRefs.current).forEach(other => { try { other?.pause() } catch {} })
+    el.currentTime = 0
+    el.play().then(() => setPlayingAudioId(audio.id)).catch(() => setPlayingAudioId(null))
   }
 
   const currentStatus: ConversaStatus = selectedKey ? (statusMap[selectedKey] ?? 'novo') : 'novo'
@@ -529,7 +540,12 @@ function ConversasContent() {
                     <div key={audio.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
                       <p className="text-sm font-semibold text-zinc-200 mb-2 truncate">{audio.nome}</p>
                       <div className="flex gap-1.5">
-                        <button onClick={() => playAudio(audio)} className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-xs">▶</button>
+                        <button
+                          onClick={() => togglePlay(audio)}
+                          className={`px-3 py-2 rounded-lg text-xs ${playingAudioId === audio.id ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-300'}`}
+                        >
+                          {playingAudioId === audio.id ? '⏸' : '▶'}
+                        </button>
                         <button
                           onClick={async () => { await sendAudio(audio); setMobileShortcutsOpen(false) }}
                           disabled={sendingAudio === audio.id}
@@ -868,10 +884,25 @@ function ConversasContent() {
                     <span className="text-xs font-semibold text-zinc-200 truncate">{audio.nome}</span>
                   </div>
                 </div>
-                <audio ref={el => { audioRefs.current[audio.id] = el }} src={audio.audio_url || `/audios/${audio.filename}`} preload="none" className="hidden" />
+                <audio
+                  ref={el => { audioRefs.current[audio.id] = el }}
+                  src={audio.audio_url || `/audios/${audio.filename}`}
+                  preload="none"
+                  className="hidden"
+                  onEnded={() => setPlayingAudioId(curr => curr === audio.id ? null : curr)}
+                  onPause={() => setPlayingAudioId(curr => curr === audio.id ? null : curr)}
+                />
                 <div className="flex gap-1.5">
-                  <button onClick={() => playAudio(audio)} title="Ouvir prévia" className="flex items-center justify-center w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0">
-                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                  <button
+                    onClick={() => togglePlay(audio)}
+                    title={playingAudioId === audio.id ? 'Pausar' : 'Ouvir prévia'}
+                    className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors flex-shrink-0 ${playingAudioId === audio.id ? 'bg-violet-600 hover:bg-violet-700 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200'}`}
+                  >
+                    {playingAudioId === audio.id ? (
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" /><rect x="14" y="5" width="4" height="14" /></svg>
+                    ) : (
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                    )}
                   </button>
                   <button
                     onClick={() => sendAudio(audio)}
