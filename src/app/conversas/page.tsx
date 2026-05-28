@@ -101,7 +101,15 @@ function formatPhone(sessionId: string) {
   if (digits.length >= 13) {
     return `(${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`
   }
+  if (digits.length === 12) {
+    return `(${digits.slice(2, 4)}) ${digits.slice(4, 8)}-${digits.slice(8)}`
+  }
   return sessionId
+}
+
+/** Nome a exibir: se o "nome" for só o número (sem pushName), formata bonito. */
+function displayName(c: { nome: string; session_id: string }): string {
+  return c.nome === c.session_id ? formatPhone(c.nome) : c.nome
 }
 
 function convKey(c: { inbox: string | null; session_id: string }) {
@@ -218,7 +226,7 @@ function ConversasContent() {
       if (typeof Notification === 'undefined') return
       if (Notification.permission !== 'granted') return
       if (document.visibilityState === 'visible') return // não notifica se já tá olhando
-      const n = new Notification(`Nova mensagem — ${conv.nome}`, {
+      const n = new Notification(`Nova mensagem — ${displayName(conv)}`, {
         body: conv.ultima_msg?.slice(0, 120) ?? '',
         tag: `flowvoz-${conv.session_id}-${conv.inbox ?? ''}`,
       })
@@ -568,7 +576,8 @@ function ConversasContent() {
           ) : filteredConversas.map(conv => {
             const k = convKey(conv)
             const isSelected = selectedKey === k
-            const inicial = conv.nome.charAt(0).toUpperCase()
+            const display = displayName(conv)
+            const inicial = display.charAt(0).toUpperCase()
             return (
               <button
                 key={k}
@@ -583,7 +592,7 @@ function ConversasContent() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-xs font-semibold text-zinc-200 truncate">{conv.nome}</span>
+                      <span className="text-xs font-semibold text-zinc-200 truncate">{display}</span>
                       <span className="text-[10px] text-zinc-600 flex-shrink-0 ml-1">{conv.hora}</span>
                     </div>
                     <p className="text-[11px] text-zinc-500 truncate">{conv.ultima_msg}</p>
@@ -624,14 +633,17 @@ function ConversasContent() {
                   </svg>
                 </button>
                 <div className="w-9 h-9 rounded-full bg-violet-800/40 flex items-center justify-center text-xs font-bold text-violet-300">
-                  {selectedConversa.nome.charAt(0).toUpperCase()}
+                  {displayName(selectedConversa).charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-zinc-100">{selectedConversa.nome}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[11px] text-zinc-500">{formatPhone(selectedConversa.session_id)}</span>
-                    {inboxes.length > 1 && <InboxBadge nome={selectedConversa.inbox_nome} cor={selectedConversa.inbox_cor} />}
-                  </div>
+                  <p className="text-sm font-semibold text-zinc-100">{displayName(selectedConversa)}</p>
+                  {/* mostra o número embaixo só se o nome for diferente do número (tem pushName) */}
+                  {selectedConversa.nome !== selectedConversa.session_id && (
+                    <p className="text-[11px] text-zinc-500 mt-0.5">{formatPhone(selectedConversa.session_id)}</p>
+                  )}
+                  {inboxes.length > 1 && (
+                    <div className="mt-1"><InboxBadge nome={selectedConversa.inbox_nome} cor={selectedConversa.inbox_cor} /></div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
