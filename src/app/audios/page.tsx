@@ -32,6 +32,7 @@ export default function AudiosPage() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
   const [recordTime, setRecordTime] = useState(0)
+  const [recordError, setRecordError] = useState('')
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordStreamRef = useRef<MediaStream | null>(null)
   const recordChunksRef = useRef<Blob[]>([])
@@ -141,7 +142,7 @@ export default function AudiosPage() {
     return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
   }
   function openRec() {
-    setNome(''); setRecordedBlob(null); setRecordTime(0); setIsRecording(false); setShowRecModal(true)
+    setNome(''); setRecordedBlob(null); setRecordTime(0); setIsRecording(false); setRecordError(''); setShowRecModal(true)
   }
   function closeRec() {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -195,14 +196,13 @@ export default function AudiosPage() {
     if (rec && rec.state !== 'inactive') rec.stop()
   }
   async function saveRecording() {
-    if (!recordedBlob || !nome.trim()) { showToast('Grave um áudio e informe o nome.'); return }
+    setRecordError('')
+    if (!recordedBlob || !nome.trim()) { setRecordError('Grave um áudio e informe o nome.'); return }
     setUploading(true)
     try {
-      // Tipo do blob (ex: "audio/webm;codecs=opus") - normaliza pra evitar problemas no upload
       const rawType = recordedBlob.type || 'audio/webm'
-      const cleanType = rawType.split(';')[0] // remove ";codecs=opus"
+      const cleanType = rawType.split(';')[0]
       const ext = cleanType.includes('ogg') ? 'ogg' : cleanType.includes('mp4') || cleanType.includes('m4a') ? 'm4a' : 'webm'
-      console.log('[saveRecording] blob:', { size: recordedBlob.size, type: rawType, cleanType, ext, nome: nome.trim() })
 
       const fileToSend = new File([recordedBlob], `gravacao.${ext}`, { type: cleanType })
       const form = new FormData()
@@ -211,19 +211,18 @@ export default function AudiosPage() {
 
       const r = await fetch('/api/audios', { method: 'POST', body: form })
       const respText = await r.text()
-      let respJson: { ok?: boolean; error?: string; audio?: unknown } = {}
+      let respJson: { ok?: boolean; error?: string } = {}
       try { respJson = JSON.parse(respText) } catch { /* não era JSON */ }
-      console.log('[saveRecording] resposta:', r.status, respText)
 
       if (!r.ok) {
-        showToast(respJson.error || `HTTP ${r.status} — abra F12 → Console`)
+        const msg = respJson.error || respText.slice(0, 200) || `HTTP ${r.status}`
+        setRecordError(`HTTP ${r.status} — ${msg} (tipo: ${rawType}, tamanho: ${recordedBlob.size}b)`)
       } else {
         showToast('Áudio gravado salvo!')
         closeRec(); load()
       }
     } catch (err) {
-      console.error('[saveRecording] exceção:', err)
-      showToast('Falha de rede. F12 → Console pra detalhes.')
+      setRecordError(`Falha de rede: ${err instanceof Error ? err.message : 'erro'}`)
     }
     setUploading(false)
   }
@@ -433,7 +432,15 @@ export default function AudiosPage() {
 
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Nome do áudio</label>
             <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex: Saudação personalizada"
-              className="w-full px-3 py-2.5 mb-4 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600" />
+              className="w-full px-3 py-2.5 mb-3 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-violet-600" />
+
+            {recordError && (
+              <div className="mb-3 px-3 py-2.5 bg-rose-950/40 border border-rose-700/60 rounded-lg">
+                <p className="text-[11px] font-semibold text-rose-300 mb-1">⚠️ Erro ao salvar</p>
+                <p className="text-[11px] text-rose-200 break-words">{recordError}</p>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button onClick={closeRec} disabled={uploading} className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-sm rounded-xl disabled:opacity-50">Cancelar</button>
               <button onClick={saveRecording} disabled={uploading || !recordedBlob || !nome.trim()}
