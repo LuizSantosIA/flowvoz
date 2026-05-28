@@ -1,19 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { put, del } from '@vercel/blob'
 import { db } from '@/lib/db'
 
 const MOCK_AUDIOS = [
   { id:  1, nome: 'Saudação inicial',           filename: 'audio-01.ogg', enviados_hoje: 12 },
   { id:  2, nome: 'Como funciona — 60 dias',    filename: 'audio-02.ogg', enviados_hoje: 8  },
-  { id:  3, nome: 'Moradia — casa ou aluguel',  filename: 'audio-03.ogg', enviados_hoje: 5  },
-  { id:  4, nome: 'Sem investimento inicial',   filename: 'audio-04.ogg', enviados_hoje: 7  },
-  { id:  5, nome: 'Encaminhando pro vendedor',  filename: 'audio-05.ogg', enviados_hoje: 3  },
-  { id:  6, nome: 'Solicitar endereço',         filename: 'audio-06.ogg', enviados_hoje: 4  },
-  { id:  7, nome: 'Já é revendedora',           filename: 'audio-07.ogg', enviados_hoje: 2  },
-  { id:  8, nome: 'Solicitar renda',            filename: 'audio-08.ogg', enviados_hoje: 9  },
-  { id:  9, nome: 'Dúvida sobre comissão',      filename: 'audio-09.ogg', enviados_hoje: 6  },
-  { id: 10, nome: 'Somos de Minas',             filename: 'audio-10.ogg', enviados_hoje: 0  },
-  { id: 11, nome: 'Sem fotos/tabela de preços', filename: 'audio-11.ogg', enviados_hoje: 0  },
-  { id: 12, nome: 'Como funciona — 90 dias',    filename: 'audio-12.ogg', enviados_hoje: 0  },
 ]
 
 export async function GET() {
@@ -39,7 +30,61 @@ export async function GET() {
   }
 }
 
+/**
+ * POST: aceita 2 formatos.
+ *  - multipart/form-data com campos { file, nome } → upload pro Vercel Blob + INSERT
+ *  - application/json com { nome, filename, audio_url } → INSERT direto (admin/manual)
+ */
 export async function POST(req: NextRequest) {
+  const ctype = req.headers.get('content-type') ?? ''
+
+  // ── Upload via multipart ───────────────────────────────────────────────────
+  if (ctype.startsWith('multipart/form-data')) {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return NextResponse.json({ ok: false, error: 'Vercel Blob não configurado (BLOB_READ_WRITE_TOKEN ausente).' }, { status: 500 })
+    }
+    try {
+      const form = await req.formData()
+      const file = form.get('file')
+      const nome = (form.get('nome') as string | null)?.trim() ?? ''
+      if (!nome) return NextResponse.json({ ok: false, error: 'Nome obrigatório.' }, { status: 400 })
+      if (!(file instanceof File)) return NextResponse.json({ ok: false, error: 'Arquivo de áudio obrigatório.' }, { status: 400 })
+
+      // Limita tamanho (10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        return NextResponse.json({ ok: false, error: 'Arquivo muito grande (máx 10MB).' }, { status: 400 })
+      }
+
+      // Tipos aceitos
+      const okTypes = ['audio/ogg', 'audio/mpeg', 'audio/mp3', 'audio/m4a', 'audio/x-m4a', 'audio/wav', 'audio/webm', 'audio/aac', 'audio/x-aac', 'audio/opus']
+      if (file.type && !okTypes.some(t => file.type.startsWith(t.split('/')[0]) || file.type === t)) {
+        return NextResponse.json({ ok: false, error: `Formato não suportado: ${file.type}` }, { status: 400 })
+      }
+
+      // Filename seguro
+      const ext = (file.name.split('.').pop() ?? 'ogg').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const stamp = Date.now()
+      const blobPath = `audios/${stamp}-${nome.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}.${ext}`
+
+      // Upload pro Vercel Blob (público — URL acessível pra Evolution/Meta baixar)
+      const uploaded = await put(blobPath, file, { access: 'public', addRandomSuffix: false })
+
+      // INSERT no DB
+      const ordemMax = await db.query<{ m: number }>(`SELECT COALESCE(MAX(ordem), 0) AS m FROM audio_templates`)
+      const novaOrdem = (ordemMax.rows[0]?.m ?? 0) + 1
+      const r = await db.query(
+        `INSERT INTO audio_templates (nome, filename, audio_url, ordem) VALUES ($1,$2,$3,$4) RETURNING *`,
+        [nome, `${stamp}.${ext}`, uploaded.url, novaOrdem]
+      )
+      return NextResponse.json({ ok: true, audio: r.rows[0] })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'falha no upload'
+      console.error('[/api/audios] upload erro:', msg)
+      return NextResponse.json({ ok: false, error: msg }, { status: 500 })
+    }
+  }
+
+  // ── Modo JSON (legacy / popular áudios fixos do repo) ──────────────────────
   const { nome, filename, audio_url, ordem } = await req.json()
   try {
     const result = await db.query(
@@ -53,22 +98,38 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const { id, nome } = await req.json()
+  const { id, nome, ordem } = await req.json()
+  const sets: string[] = []
+  const vals: unknown[] = []
+  let i = 1
+  if (typeof nome === 'string')  { sets.push(`nome = $${i++}`);  vals.push(nome.trim()) }
+  if (typeof ordem === 'number') { sets.push(`ordem = $${i++}`); vals.push(ordem) }
+  if (sets.length === 0) return NextResponse.json({ ok: false, error: 'nada para atualizar' }, { status: 400 })
+  vals.push(id)
   try {
-    await db.query(`UPDATE audio_templates SET nome = $1 WHERE id = $2`, [nome, id])
+    await db.query(`UPDATE audio_templates SET ${sets.join(', ')} WHERE id = $${i}`, vals)
     return NextResponse.json({ ok: true })
   } catch {
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: false, error: 'Falha no banco.' }, { status: 500 })
   }
 }
 
 export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
+  if (!id) return NextResponse.json({ ok: false, error: 'id obrigatório' }, { status: 400 })
   try {
-    await db.query(`DELETE FROM audio_templates WHERE id = $1`, [id])
+    // Pega a URL pra deletar do Blob se for de lá
+    const r = await db.query<{ audio_url: string | null }>(
+      `DELETE FROM audio_templates WHERE id = $1 RETURNING audio_url`,
+      [id]
+    )
+    const url = r.rows[0]?.audio_url
+    if (url && url.includes('.vercel-storage.com/')) {
+      try { await del(url) } catch { /* silencioso — arquivo já pode não existir */ }
+    }
     return NextResponse.json({ ok: true })
   } catch {
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: false, error: 'Falha no banco.' }, { status: 500 })
   }
 }
