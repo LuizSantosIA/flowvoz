@@ -50,10 +50,34 @@ export async function POST(req: NextRequest) {
   if (!nome) nome = session_id
 
   let content = ''
-  if (messageType === 'conversation') content = data?.message?.conversation || ''
-  else if (messageType === 'audioMessage') content = '[Áudio recebido]'
-  else if (messageType === 'imageMessage') content = data?.message?.imageMessage?.caption || '[Imagem]'
-  else content = '[Mensagem]'
+  // Normaliza o tipo armazenado pra ser mais simples ('text', 'audio', 'location', etc.)
+  let storedType = messageType
+  if (messageType === 'conversation') {
+    storedType = 'text'
+    content = data?.message?.conversation || ''
+  } else if (messageType === 'audioMessage') {
+    storedType = 'audio'
+    content = '[Áudio recebido]'
+  } else if (messageType === 'imageMessage') {
+    storedType = 'image'
+    content = data?.message?.imageMessage?.caption || '[Imagem]'
+  } else if (messageType === 'locationMessage') {
+    storedType = 'location'
+    const loc = data?.message?.locationMessage
+    const lat = loc?.degreesLatitude
+    const lng = loc?.degreesLongitude
+    const name = (loc?.name || '').trim()
+    const addr = (loc?.address || '').trim()
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      const url = `https://www.google.com/maps?q=${lat},${lng}`
+      const label = name || addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+      content = `📍 ${label}\n${url}`
+    } else {
+      content = '📍 Localização (sem coordenadas)'
+    }
+  } else {
+    content = '[Mensagem]'
+  }
 
   // Insere mensagem com placeholder, retornando o id pra atualizar depois (transcrição)
   let insertedId: number | null = null
@@ -62,7 +86,7 @@ export async function POST(req: NextRequest) {
       `INSERT INTO messages (session_id, contact_name, content, message_type, direction, inbox)
        VALUES ($1,$2,$3,$4,'in',$5)
        RETURNING id`,
-      [session_id, nome, content, messageType, inbox]
+      [session_id, nome, content, storedType, inbox]
     )
     insertedId = r.rows[0]?.id ?? null
   } catch {

@@ -23,7 +23,7 @@ interface Message {
   id: string
   direction: 'in' | 'out'
   content: string
-  tipo: 'text' | 'audio'
+  tipo: 'text' | 'audio' | 'image' | 'location' | string
   hora: string
   status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | null
 }
@@ -969,8 +969,35 @@ function ConversasContent() {
                             <p className={`text-[10px] mt-0.5 ${isOut ? 'text-violet-400/70' : 'text-zinc-500'}`}>Áudio</p>
                           </div>
                         </div>
-                      ) : (
-                        <p>{msg.content}</p>
+                      ) : msg.tipo === 'location' ? (() => {
+                        // content vem como "📍 nome\nhttps://maps..."
+                        const lines = msg.content.split('\n')
+                        const label = (lines[0] || '📍 Localização').replace(/^📍\s*/, '').trim()
+                        const url = lines.find(l => /^https?:\/\//.test(l.trim()))?.trim()
+                        return (
+                          <div>
+                            <div className="flex items-start gap-2 mb-2">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isOut ? 'bg-violet-700/60' : 'bg-zinc-700'}`}>
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                                  <circle cx="12" cy="10" r="3" />
+                                </svg>
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium truncate">{label}</p>
+                                <p className={`text-[10px] mt-0.5 ${isOut ? 'text-violet-400/70' : 'text-zinc-500'}`}>Localização</p>
+                              </div>
+                            </div>
+                            {url && (
+                              <a href={url} target="_blank" rel="noopener noreferrer"
+                                className={`block text-center text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-colors ${isOut ? 'bg-violet-700/40 hover:bg-violet-700/60 text-violet-100' : 'bg-zinc-700 hover:bg-zinc-600 text-zinc-100'}`}>
+                                Abrir no Google Maps ↗
+                              </a>
+                            )}
+                          </div>
+                        )
+                      })() : (
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
                       )}
                       <div className={`flex items-center gap-1 mt-1 ${isOut ? 'justify-end' : ''}`}>
                         <p className={`text-[10px] ${isOut ? 'text-violet-400/70' : 'text-zinc-600'}`}>{msg.hora}</p>

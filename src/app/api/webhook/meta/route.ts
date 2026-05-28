@@ -8,12 +8,13 @@ interface MetaMessage {
   id: string
   from: string
   timestamp: string
-  type: 'text' | 'audio' | 'image' | 'document' | 'sticker' | 'video' | string
+  type: 'text' | 'audio' | 'image' | 'document' | 'sticker' | 'video' | 'location' | string
   text?: { body: string }
   audio?: { id: string; mime_type?: string }
   image?: { id: string; caption?: string; mime_type?: string }
   document?: { id: string; caption?: string; filename?: string; mime_type?: string }
   video?: { id: string; caption?: string }
+  location?: { latitude?: number; longitude?: number; name?: string; address?: string }
 }
 
 interface MetaContact {
@@ -37,6 +38,7 @@ const typeMap: Record<string, string> = {
   document: 'document',
   sticker: 'sticker',
   video: 'video',
+  location: 'location',
 }
 
 // ─── GET — Verificação de webhook pela Meta ──────────────────────────────────
@@ -115,6 +117,19 @@ async function handlePayload(payload: Record<string, unknown>) {
   else if (message.type === 'audio') content = '[Áudio recebido]'
   else if (message.type === 'image') content = message.image?.caption || '[Imagem]'
   else if (message.type === 'document') content = message.document?.caption || '[Documento]'
+  else if (message.type === 'location') {
+    const lat = message.location?.latitude
+    const lng = message.location?.longitude
+    const name = (message.location?.name || '').trim()
+    const addr = (message.location?.address || '').trim()
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      const url = `https://www.google.com/maps?q=${lat},${lng}`
+      const label = name || addr || `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+      content = `📍 ${label}\n${url}`
+    } else {
+      content = '📍 Localização (sem coordenadas)'
+    }
+  }
   else content = '[Mensagem]'
 
   let insertedId: number | null = null
