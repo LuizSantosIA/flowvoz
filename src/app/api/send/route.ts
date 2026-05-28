@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Muitos envios em pouco tempo. Aguarde 1 minuto.' }, { status: 429 })
   }
 
-  const { session_id, tipo, content, audio_url, audio_id, inbox } = await req.json()
+  const { session_id, tipo, content, audio_url, audio_id, audio_nome, inbox } = await req.json()
 
   if (!session_id) {
     return NextResponse.json({ ok: false, error: 'Conversa não identificada.' }, { status: 400 })
@@ -65,7 +65,9 @@ export async function POST(req: NextRequest) {
        VALUES ($1,$2,$3,'out',$4,$5,'sent',$6,$7)`,
       [
         session_id,
-        tipo === 'audio' ? '[Áudio enviado]' : content,
+        tipo === 'audio'
+          ? (typeof audio_nome === 'string' && audio_nome.trim() ? audio_nome.trim() : '[Áudio enviado]')
+          : content,
         tipo,
         target.key,
         externalId ?? null,

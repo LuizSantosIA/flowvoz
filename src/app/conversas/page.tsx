@@ -374,7 +374,7 @@ function ConversasContent() {
       const r = await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tipo: 'audio', audio_url: audioUrl, audio_id: audio.id }),
+        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tipo: 'audio', audio_url: audioUrl, audio_id: audio.id, audio_nome: audio.nome }),
       })
       if (!r.ok) {
         const data = await r.json().catch(() => ({}))
