@@ -5,8 +5,9 @@ const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   // Evita o browser tentar adivinhar o MIME (ataques de upload)
   { key: 'X-Content-Type-Options', value: 'nosniff' },
-  // Restringe quais APIs do navegador outras origens podem usar via iframe
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  // Restringe quais APIs o navegador permite. microphone=(self) libera só pro próprio domínio
+  // (precisa pra gravação de áudio funcionar). camera/geolocation seguem bloqueadas.
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(self), geolocation=()' },
   // Limita o que o Referer leva pra outros domínios
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   // Reforço: não indexar (além do robots.txt e meta)
