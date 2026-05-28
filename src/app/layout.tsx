@@ -17,6 +17,7 @@ const navItems = [
   { href: '/conversas',  label: 'Conversas', icon: 'message' },
   { href: '/audios',     label: 'Áudios',    icon: 'mic' },
   { href: '/templates',  label: 'Textos',    icon: 'doc' },
+  { href: '/etiquetas',  label: 'Etiquetas', icon: 'tag' },
   { href: '/config',     label: 'Caixas',    icon: 'settings' },
   { href: '/auditoria',  label: 'Auditoria', icon: 'audit' },
 ]
@@ -55,6 +56,14 @@ function Icon({ name }: { name: string }) {
         <polyline points="14 2 14 8 20 8" />
         <line x1="9" y1="13" x2="15" y2="13" />
         <line x1="9" y1="17" x2="15" y2="17" />
+      </svg>
+    )
+  }
+  if (name === 'tag') {
+    return (
+      <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+        <line x1="7" y1="7" x2="7.01" y2="7" />
       </svg>
     )
   }

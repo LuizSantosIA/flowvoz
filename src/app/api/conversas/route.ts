@@ -35,10 +35,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(result.rows)
     }
 
-    // Lista de conversas — uma por (número, contato), ordenada pela mais recente
+    // Lista de conversas — uma por (número, contato), ordenada pela mais recente, com etiquetas
     const result = await db.query(`
       SELECT
-        session_id, inbox, inbox_nome, inbox_cor, nome, ultima_msg, hora, status, last_direction, last_at
+        t.session_id, t.inbox, t.inbox_nome, t.inbox_cor, t.nome, t.ultima_msg, t.hora,
+        t.status, t.last_direction, t.last_at,
+        COALESCE(
+          (SELECT json_agg(json_build_object('id', tg.id, 'nome', tg.nome, 'cor', tg.cor) ORDER BY tg.ordem ASC, tg.id ASC)
+             FROM lead_tags lt
+             JOIN tags tg ON tg.id = lt.tag_id
+            WHERE lt.session_id = t.session_id AND lt.inbox = COALESCE(t.inbox, '')),
+          '[]'::json
+        ) AS tags
       FROM (
         SELECT DISTINCT ON (m.inbox, m.session_id)
           m.session_id,

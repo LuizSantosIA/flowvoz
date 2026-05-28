@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
+interface Tag { id: number; nome: string; cor: string }
+
 interface ConversaItem {
   session_id: string
   inbox: string | null
@@ -13,6 +15,7 @@ interface ConversaItem {
   hora: string
   last_direction?: 'in' | 'out'
   last_at?: string
+  tags?: Tag[]
 }
 
 interface Message {
@@ -72,18 +75,19 @@ interface Inbox {
   ordem: number
 }
 
-// Cores das etiquetas de número (classes estáticas p/ Tailwind)
-const INBOX_COLORS: Record<string, string> = {
+// Cores compartilhadas pra caixas e etiquetas (classes estáticas p/ Tailwind)
+const TAG_COLORS: Record<string, string> = {
   violet:  'bg-violet-500/20 text-violet-300 border-violet-500/40',
   emerald: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
   blue:    'bg-blue-500/20 text-blue-300 border-blue-500/40',
   amber:   'bg-amber-500/20 text-amber-300 border-amber-500/40',
   rose:    'bg-rose-500/20 text-rose-300 border-rose-500/40',
+  pink:    'bg-pink-500/20 text-pink-300 border-pink-500/40',
+  cyan:    'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
   zinc:    'bg-zinc-700/40 text-zinc-400 border-zinc-600/40',
 }
-function inboxColor(cor?: string) {
-  return INBOX_COLORS[cor ?? 'zinc'] ?? INBOX_COLORS.zinc
-}
+function inboxColor(cor?: string) { return TAG_COLORS[cor ?? 'zinc'] ?? TAG_COLORS.zinc }
+function tagColor(cor?: string)   { return TAG_COLORS[cor ?? 'violet'] ?? TAG_COLORS.violet }
 
 const MOCK_CONVERSAS: ConversaItem[] = [
   { session_id: '5531991234567', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais', hora: '10:32' },
@@ -143,6 +147,10 @@ function ConversasContent() {
   const [templates, setTemplates] = useState<TextTemplate[]>([])
   const [rightTab, setRightTab] = useState<'audios' | 'textos'>('audios')
   const [mobileShortcutsOpen, setMobileShortcutsOpen] = useState(false)
+
+  // Etiquetas (tags) — catálogo + dropdown aberto?
+  const [allTags, setAllTags] = useState<Tag[]>([])
+  const [showTagPicker, setShowTagPicker] = useState(false)
   const [sendingAudio, setSendingAudio] = useState<number | null>(null)
   const [sentAudio, setSentAudio] = useState<number | null>(null)
 
@@ -201,6 +209,30 @@ function ConversasContent() {
       .then((data: TextTemplate[]) => { if (Array.isArray(data)) setTemplates(data) })
       .catch(() => { /* silencioso */ })
   }, [])
+
+  useEffect(() => {
+    fetch('/api/tags')
+      .then(r => r.json())
+      .then((data: Tag[]) => { if (Array.isArray(data)) setAllTags(data) })
+      .catch(() => { /* silencioso */ })
+  }, [])
+
+  // Aplica/desmarca uma tag no lead selecionado
+  async function toggleTag(tagId: number) {
+    if (!selectedConversa) return
+    const current = selectedConversa.tags ?? []
+    const has = current.some(t => t.id === tagId)
+    const novos = has ? current.filter(t => t.id !== tagId) : [...current, allTags.find(t => t.id === tagId)!]
+    // otimista
+    setConversas(prev => prev.map(c => convKey(c) === selectedKey ? { ...c, tags: novos } : c))
+    try {
+      await fetch('/api/conversas/tags', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tag_ids: novos.map(t => t.id) }),
+      })
+    } catch { /* polling reconcilia */ }
+  }
 
   const selectedConversa = conversas.find(c => convKey(c) === selectedKey) ?? null
 
@@ -727,9 +759,15 @@ function ConversasContent() {
                       <span className="text-[10px] text-zinc-600 flex-shrink-0 ml-1">{conv.hora}</span>
                     </div>
                     <p className="text-[11px] text-zinc-500 truncate">{conv.ultima_msg}</p>
-                    {showInboxTag && (
-                      <div className="mt-1">
-                        <InboxBadge nome={conv.inbox_nome} cor={conv.inbox_cor} />
+                    {(showInboxTag || (conv.tags && conv.tags.length > 0)) && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {showInboxTag && <InboxBadge nome={conv.inbox_nome} cor={conv.inbox_cor} />}
+                        {conv.tags?.slice(0, 3).map(t => (
+                          <span key={t.id} className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full border ${tagColor(t.cor)}`}>{t.nome}</span>
+                        ))}
+                        {conv.tags && conv.tags.length > 3 && (
+                          <span className="text-[9px] text-zinc-500">+{conv.tags.length - 3}</span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -777,7 +815,49 @@ function ConversasContent() {
                   )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 relative">
+                <button
+                  onClick={() => setShowTagPicker(s => !s)}
+                  title="Etiquetas"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-medium rounded-lg transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                    <line x1="7" y1="7" x2="7.01" y2="7" />
+                  </svg>
+                  Etiquetas
+                  {selectedConversa.tags && selectedConversa.tags.length > 0 && (
+                    <span className="bg-violet-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">{selectedConversa.tags.length}</span>
+                  )}
+                </button>
+
+                {showTagPicker && (
+                  <>
+                    {/* overlay pra fechar clicando fora */}
+                    <div className="fixed inset-0 z-30" onClick={() => setShowTagPicker(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-40 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-64 max-h-80 overflow-y-auto">
+                      <div className="px-3 py-2 border-b border-zinc-800 text-[11px] text-zinc-500">Aplicar etiquetas</div>
+                      {allTags.length === 0 ? (
+                        <div className="p-4 text-xs text-zinc-500 text-center">
+                          Nenhuma etiqueta criada ainda.<br />
+                          <a href="/etiquetas" className="text-violet-400 hover:underline">Criar primeira →</a>
+                        </div>
+                      ) : allTags.map(tag => {
+                        const checked = selectedConversa.tags?.some(t => t.id === tag.id) ?? false
+                        return (
+                          <button key={tag.id} onClick={() => toggleTag(tag.id)}
+                            className="w-full px-3 py-2 flex items-center gap-2 hover:bg-zinc-800 transition-colors text-left">
+                            <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${checked ? 'bg-violet-600 border-violet-600' : 'bg-zinc-800 border-zinc-600'}`}>
+                              {checked && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><polyline points="20 6 9 17 4 12" /></svg>}
+                            </span>
+                            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${tagColor(tag.cor)}`}>{tag.nome}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+
                 <button
                   onClick={() => setMobileShortcutsOpen(true)}
                   title="Áudios e textos"
