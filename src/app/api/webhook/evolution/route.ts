@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { transcribeAudio, fetchEvolutionAudio } from '@/lib/transcribe'
 
 export async function POST(req: NextRequest) {
   // Protege o webhook: exige ?secret=WEBHOOK_SECRET (ou header X-Webhook-Secret).
-  // Se WEBHOOK_SECRET não estiver configurado no env, o webhook fica aberto (modo dev).
   const expected = process.env.WEBHOOK_SECRET
   if (expected) {
     const url = new URL(req.url)
@@ -19,9 +19,7 @@ export async function POST(req: NextRequest) {
   // Ignorar mensagens enviadas pelo próprio número (fromMe)
   if (data?.key?.fromMe) return NextResponse.json({ ok: true })
 
-  // Qual número/instância recebeu (Evolution v2 envia "instance" no corpo)
   const inbox: string | null = body?.instance ?? null
-
   const session_id = data?.key?.remoteJid?.split('@')[0]
   const nome = data?.pushName || session_id
   const messageType: string = data?.messageType || 'conversation'
@@ -32,13 +30,39 @@ export async function POST(req: NextRequest) {
   else if (messageType === 'imageMessage') content = data?.message?.imageMessage?.caption || '[Imagem]'
   else content = '[Mensagem]'
 
+  // Insere mensagem com placeholder, retornando o id pra atualizar depois (transcrição)
+  let insertedId: number | null = null
   try {
-    await db.query(
-      `INSERT INTO messages (session_id, contact_name, content, message_type, direction, inbox) VALUES ($1,$2,$3,$4,'in',$5)`,
+    const r = await db.query<{ id: number }>(
+      `INSERT INTO messages (session_id, contact_name, content, message_type, direction, inbox)
+       VALUES ($1,$2,$3,$4,'in',$5)
+       RETURNING id`,
       [session_id, nome, content, messageType, inbox]
     )
+    insertedId = r.rows[0]?.id ?? null
   } catch {
     console.log('[webhook] DB offline, ignorando:', session_id, content)
+  }
+
+  // Se for áudio e OpenAI configurado: tenta transcrever e atualiza a mensagem
+  if (messageType === 'audioMessage' && insertedId && inbox && process.env.OPENAI_API_KEY) {
+    try {
+      const media = await fetchEvolutionAudio(inbox, data.key)
+      if (media) {
+        const t = await transcribeAudio(media.buffer, media.mimetype)
+        if (t.ok && t.text) {
+          await db.query(
+            `UPDATE messages SET content = $1 WHERE id = $2`,
+            [`Áudio transcrito: ${t.text}`, insertedId]
+          )
+        } else {
+          console.warn('[webhook] transcrição falhou:', t.error)
+        }
+      }
+    } catch (err) {
+      console.error('[webhook] erro na transcrição:', err)
+      // Mantém "[Áudio recebido]" — não bloqueia a mensagem
+    }
   }
 
   return NextResponse.json({ ok: true })

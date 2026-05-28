@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { db } from '@/lib/db'
+import { transcribeAudio, fetchMetaAudio } from '@/lib/transcribe'
 
 // ─── Tipos Meta ──────────────────────────────────────────────────────────────
 interface MetaMessage {
@@ -116,6 +117,7 @@ async function handlePayload(payload: Record<string, unknown>) {
   else if (message.type === 'document') content = message.document?.caption || '[Documento]'
   else content = '[Mensagem]'
 
+  let insertedId: number | null = null
   try {
     // Auto-cadastra a caixa (número Meta) na primeira mensagem
     if (phoneNumberId) {
@@ -126,13 +128,35 @@ async function handlePayload(payload: Record<string, unknown>) {
         [phoneNumberId, displayNumber]
       )
     }
-    await db.query(
+    const r = await db.query<{ id: number }>(
       `INSERT INTO messages (session_id, contact_name, content, message_type, direction, inbox)
-       VALUES ($1,$2,$3,$4,'in',$5)`,
+       VALUES ($1,$2,$3,$4,'in',$5)
+       RETURNING id`,
       [session_id, nome, content, tipo, phoneNumberId]
     )
+    insertedId = r.rows[0]?.id ?? null
   } catch (err) {
     console.error('[Meta Webhook] Erro ao gravar no banco:', err)
+  }
+
+  // Se for áudio e OpenAI configurado: transcreve e atualiza a mensagem
+  if (message.type === 'audio' && message.audio?.id && insertedId && process.env.OPENAI_API_KEY) {
+    try {
+      const media = await fetchMetaAudio(message.audio.id)
+      if (media) {
+        const t = await transcribeAudio(media.buffer, media.mimetype)
+        if (t.ok && t.text) {
+          await db.query(
+            `UPDATE messages SET content = $1 WHERE id = $2`,
+            [`Áudio transcrito: ${t.text}`, insertedId]
+          )
+        } else {
+          console.warn('[Meta Webhook] transcrição falhou:', t.error)
+        }
+      }
+    } catch (err) {
+      console.error('[Meta Webhook] erro na transcrição:', err)
+    }
   }
 
   // Meta espera 200 rápido
