@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const sessionId = searchParams.get('session_id')
   const inbox = searchParams.get('inbox') // filtro opcional
+  const showArchived = searchParams.get('arquivadas') === 'true'
 
   try {
     if (sessionId) {
@@ -57,6 +58,7 @@ export async function GET(req: NextRequest) {
           m.content AS ultima_msg,
           TO_CHAR(m.created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora,
           COALESCE(cs.status, 'novo') AS status,
+          COALESCE(cs.arquivada, false) AS arquivada,
           m.direction AS last_direction,
           m.created_at AS last_at,
           m.created_at AS _ts
@@ -65,11 +67,12 @@ export async function GET(req: NextRequest) {
         LEFT JOIN inboxes ib ON ib.key = m.inbox
         WHERE m.created_at >= NOW() - INTERVAL '30 days'
           AND ($1::text IS NULL OR m.inbox = $1)
+          AND COALESCE(cs.arquivada, false) = $2
         ORDER BY m.inbox, m.session_id, m.created_at DESC
       ) t
       ORDER BY t._ts DESC
       LIMIT 200
-    `, [inbox])
+    `, [inbox, showArchived])
     return NextResponse.json(result.rows)
   } catch {
     if (sessionId) return NextResponse.json(MOCK_MESSAGES)

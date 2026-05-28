@@ -13,6 +13,7 @@ interface ConversaItem {
   nome: string
   ultima_msg: string
   hora: string
+  arquivada?: boolean
   last_direction?: 'in' | 'out'
   last_at?: string
   tags?: Tag[]
@@ -151,6 +152,11 @@ function ConversasContent() {
   // Etiquetas (tags) — catálogo + dropdown aberto?
   const [allTags, setAllTags] = useState<Tag[]>([])
   const [showTagPicker, setShowTagPicker] = useState(false)
+
+  // Arquivadas: mostra ativas (false) ou arquivadas (true)?
+  const [showArchived, setShowArchived] = useState(false)
+  const showArchivedRef = useRef(showArchived)
+  useEffect(() => { showArchivedRef.current = showArchived })
   const [sendingAudio, setSendingAudio] = useState<number | null>(null)
   const [sentAudio, setSentAudio] = useState<number | null>(null)
 
@@ -184,7 +190,8 @@ function ConversasContent() {
   }, [])
 
   useEffect(() => {
-    fetch('/api/conversas')
+    const q = showArchived ? '?arquivadas=true' : ''
+    fetch(`/api/conversas${q}`)
       .then(r => r.json())
       .then((data: ConversaItem[]) => {
         setConversas(data)
@@ -194,7 +201,7 @@ function ConversasContent() {
         }
       })
       .catch(() => setConversas(MOCK_CONVERSAS))
-  }, [initialSession]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialSession, showArchived]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetch('/api/audios')
@@ -216,6 +223,23 @@ function ConversasContent() {
       .then((data: Tag[]) => { if (Array.isArray(data)) setAllTags(data) })
       .catch(() => { /* silencioso */ })
   }, [])
+
+  // Arquiva/desarquiva a conversa selecionada
+  async function toggleArchive() {
+    if (!selectedConversa) return
+    const novoEstado = !selectedConversa.arquivada
+    // Some da lista atual otimisticamente
+    setConversas(prev => prev.filter(c => convKey(c) !== selectedKey))
+    setSelectedKey(null)
+    try {
+      await fetch('/api/conversas/archive', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, arquivada: novoEstado }),
+      })
+      showToast(novoEstado ? 'Conversa arquivada.' : 'Conversa desarquivada.')
+    } catch { showToast('Falha de rede.') }
+  }
 
   // Aplica/desmarca uma tag no lead selecionado
   async function toggleTag(tagId: number) {
@@ -327,7 +351,8 @@ function ConversasContent() {
 
   useEffect(() => {
     function refresh() {
-      fetch('/api/conversas')
+      const q = showArchivedRef.current ? '?arquivadas=true' : ''
+      fetch(`/api/conversas${q}`)
         .then(r => r.json())
         .then((data: ConversaItem[]) => {
           if (!Array.isArray(data)) return
@@ -710,8 +735,25 @@ function ConversasContent() {
 
         <div className="px-4 py-3 border-b border-zinc-800">
           <div className="flex items-center justify-between mb-2">
-            <h1 className="text-base font-bold text-white">Conversas</h1>
+            <h1 className="text-base font-bold text-white">{showArchived ? 'Arquivadas' : 'Conversas'}</h1>
             <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full">{byInbox.length}</span>
+          </div>
+          <div className="flex gap-1 mb-2">
+            <button
+              onClick={() => { setShowArchived(false); setSelectedKey(null) }}
+              className={`flex-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors ${!showArchived ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+            >Ativas</button>
+            <button
+              onClick={() => { setShowArchived(true); setSelectedKey(null) }}
+              className={`flex-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors flex items-center justify-center gap-1 ${showArchived ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'}`}
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <polyline points="21 8 21 21 3 21 3 8" />
+                <rect x="1" y="3" width="22" height="5" />
+                <line x1="10" y1="12" x2="14" y2="12" />
+              </svg>
+              Arquivadas
+            </button>
           </div>
           <div className="relative mb-2">
             <svg className="w-3.5 h-3.5 text-zinc-600 absolute left-2.5 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -816,6 +858,18 @@ function ConversasContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2 relative">
+                <button
+                  onClick={toggleArchive}
+                  title={selectedConversa.arquivada ? 'Desarquivar' : 'Arquivar (some da lista principal)'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-medium rounded-lg transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <polyline points="21 8 21 21 3 21 3 8" />
+                    <rect x="1" y="3" width="22" height="5" />
+                    <line x1="10" y1="12" x2="14" y2="12" />
+                  </svg>
+                  {selectedConversa.arquivada ? 'Desarquivar' : 'Arquivar'}
+                </button>
                 <button
                   onClick={() => setShowTagPicker(s => !s)}
                   title="Etiquetas"
