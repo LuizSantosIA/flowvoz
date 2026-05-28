@@ -224,20 +224,23 @@ function ConversasContent() {
       .catch(() => { /* silencioso */ })
   }, [])
 
-  // Arquiva/desarquiva a conversa selecionada
+  // Arquiva/desarquiva a conversa selecionada (do chat header)
   async function toggleArchive() {
     if (!selectedConversa) return
-    const novoEstado = !selectedConversa.arquivada
-    // Some da lista atual otimisticamente
-    setConversas(prev => prev.filter(c => convKey(c) !== selectedKey))
+    await archiveConversa(selectedConversa, !selectedConversa.arquivada)
     setSelectedKey(null)
+  }
+
+  // Helper genérico: arquivar/desarquivar qualquer conversa (usado tb na lista)
+  async function archiveConversa(c: ConversaItem, arquivar: boolean) {
+    setConversas(prev => prev.filter(x => convKey(x) !== convKey(c)))
     try {
       await fetch('/api/conversas/archive', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, arquivada: novoEstado }),
+        body: JSON.stringify({ session_id: c.session_id, inbox: c.inbox, arquivada: arquivar }),
       })
-      showToast(novoEstado ? 'Conversa arquivada.' : 'Conversa desarquivada.')
+      showToast(arquivar ? 'Arquivada.' : 'Desarquivada.')
     } catch { showToast('Falha de rede.') }
   }
 
@@ -784,13 +787,25 @@ function ConversasContent() {
             const display = displayName(conv)
             const inicial = display.charAt(0).toUpperCase()
             return (
-              <button
+              <div
                 key={k}
                 onClick={() => setSelectedKey(k)}
-                className={`w-full text-left px-4 py-3.5 border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors ${
+                className={`w-full text-left px-4 py-3.5 border-b border-zinc-800/60 hover:bg-zinc-800/40 transition-colors cursor-pointer relative group ${
                   isSelected ? 'bg-violet-900/20 border-l-2 border-l-violet-500' : ''
                 }`}
               >
+                {showArchived && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); archiveConversa(conv, false) }}
+                    title="Desarquivar"
+                    className="absolute right-2 top-2 z-10 p-1.5 bg-zinc-800 hover:bg-emerald-700 text-zinc-400 hover:text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <polyline points="3 9 12 2 21 9 21 22 3 22 3 9" />
+                      <polyline points="9 22 9 14 15 14 15 22" />
+                    </svg>
+                  </button>
+                )}
                 <div className="flex items-center gap-2.5">
                   <div className="w-9 h-9 rounded-full bg-violet-800/40 flex items-center justify-center text-xs font-bold text-violet-300 flex-shrink-0">
                     {inicial}
@@ -814,7 +829,7 @@ function ConversasContent() {
                     )}
                   </div>
                 </div>
-              </button>
+              </div>
             )
           })}
         </div>
