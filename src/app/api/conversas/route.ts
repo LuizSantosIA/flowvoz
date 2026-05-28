@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logAudit } from '@/lib/audit'
 
 const MOCK_CONVERSAS = [
   { session_id: '5531991234567', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais', hora: '10:32', status: 'novo' },
@@ -81,6 +82,7 @@ export async function POST(req: NextRequest) {
       [session_id, inboxKey]
     )
   } catch { /* silencioso */ }
+  await logAudit('conv_assume', { session_id, inbox: inboxKey }, req)
   return NextResponse.json({ ok: true })
 }
 
@@ -95,6 +97,7 @@ export async function PATCH(req: NextRequest) {
        DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()`,
       [session_id, inboxKey, status]
     )
+    await logAudit('conv_status', { session_id, inbox: inboxKey, status }, req)
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ ok: true })

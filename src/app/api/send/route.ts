@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { resolveInbox } from '@/lib/inboxes'
 import { sendText, sendAudio } from '@/lib/whatsapp'
+import { logAudit } from '@/lib/audit'
 
 /** Converte erros técnicos em mensagens amigáveis pro atendente */
 function friendlyError(msg: string): string {
@@ -16,7 +17,7 @@ function friendlyError(msg: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const { session_id, tipo, content, audio_url, inbox } = await req.json()
+  const { session_id, tipo, content, audio_url, audio_id, inbox } = await req.json()
 
   if (!session_id) {
     return NextResponse.json({ ok: false, error: 'Conversa não identificada.' }, { status: 400 })
@@ -42,17 +43,27 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const raw = err instanceof Error ? err.message : 'Falha desconhecida'
     console.error('[/api/send] envio falhou:', raw)
+    await logAudit('send_fail', { session_id, inbox: target.key, tipo, audio_id: audio_id ?? null, error: raw }, req, false)
     return NextResponse.json({ ok: false, error: friendlyError(raw) }, { status: 502 })
   }
 
-  // Sucesso: registra no DB com external_id e status='sent'
+  // Sucesso: registra no DB com external_id, status='sent' e (se áudio) audio_id
   try {
     await db.query(
-      `INSERT INTO messages (session_id, content, message_type, direction, inbox, external_id, status)
-       VALUES ($1,$2,$3,'out',$4,$5,'sent')`,
-      [session_id, tipo === 'audio' ? '[Áudio enviado]' : content, tipo, target.key, externalId ?? null]
+      `INSERT INTO messages (session_id, content, message_type, direction, inbox, external_id, status, audio_id)
+       VALUES ($1,$2,$3,'out',$4,$5,'sent',$6)`,
+      [
+        session_id,
+        tipo === 'audio' ? '[Áudio enviado]' : content,
+        tipo,
+        target.key,
+        externalId ?? null,
+        tipo === 'audio' && typeof audio_id === 'number' ? audio_id : null,
+      ]
     )
   } catch { /* ignora se DB offline */ }
+
+  await logAudit('send_ok', { session_id, inbox: target.key, tipo, audio_id: audio_id ?? null, external_id: externalId ?? null }, req)
 
   return NextResponse.json({ ok: true })
 }

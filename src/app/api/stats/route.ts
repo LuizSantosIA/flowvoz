@@ -43,16 +43,32 @@ export async function GET() {
       ORDER BY d
     `)
 
+    const topAudios = await db.query<{ nome: string; envios: number }>(`
+      SELECT at.nome,
+             COUNT(m.id)::int AS envios
+        FROM audio_templates at
+        LEFT JOIN messages m
+               ON m.audio_id = at.id
+              AND m.direction = 'out'
+              AND m.created_at >= NOW() - INTERVAL '7 days'
+       GROUP BY at.id, at.nome
+       HAVING COUNT(m.id) > 0
+       ORDER BY envios DESC, at.nome ASC
+       LIMIT 5
+    `)
+
     return NextResponse.json({
       totals: totals.rows[0] ?? { in_hoje: 0, out_hoje: 0, audio_hoje: 0, text_hoje: 0, conversas_7d: 0 },
       porCaixa: porCaixa.rows,
       porDia: porDia.rows,
+      topAudios: topAudios.rows,
     })
   } catch {
     return NextResponse.json({
       totals: { in_hoje: 0, out_hoje: 0, audio_hoje: 0, text_hoje: 0, conversas_7d: 0 },
       porCaixa: [],
       porDia: [],
+      topAudios: [],
     })
   }
 }

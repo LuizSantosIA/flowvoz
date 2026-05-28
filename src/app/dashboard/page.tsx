@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts'
+import { Skeleton } from '@/components/Skeleton'
 
 interface Stats {
   totals: { in_hoje: number; out_hoje: number; audio_hoje: number; text_hoje: number; conversas_7d: number }
   porCaixa: { inbox: string; cor: string; in_hoje: number; out_hoje: number }[]
   porDia:   { dia: string; recebidas: number; enviadas: number }[]
+  topAudios: { nome: string; envios: number }[]
 }
 
 const INBOX_DOT: Record<string, string> = {
@@ -42,7 +44,26 @@ export default function DashboardPage() {
       </div>
 
       {loading || !stats ? (
-        <div className="text-center text-zinc-600 text-sm py-16">Carregando…</div>
+        <div className="p-6 space-y-6 max-w-6xl pb-20 md:pb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-2">
+                <Skeleton className="h-2.5 w-24" />
+                <Skeleton className="h-8 w-12" />
+              </div>
+            ))}
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <Skeleton className="h-4 w-40 mb-4" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <Skeleton className="h-4 w-40 mb-4" />
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="p-6 space-y-6 max-w-6xl pb-20 md:pb-6">
           {/* Cards de totais */}
@@ -72,6 +93,30 @@ export default function DashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+
+          {/* Top áudios (7 dias) */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <h2 className="text-sm font-bold text-zinc-100 mb-4">Áudios mais enviados — últimos 7 dias</h2>
+            {stats.topAudios.length === 0 ? (
+              <p className="text-xs text-zinc-500">Nenhum áudio enviado nos últimos 7 dias ainda.</p>
+            ) : (
+              <div className="space-y-2">
+                {(() => {
+                  const max = Math.max(...stats.topAudios.map(a => a.envios), 1)
+                  return stats.topAudios.map((a, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="text-[10px] font-mono text-zinc-600 w-4 flex-shrink-0">{i + 1}</span>
+                      <span className="text-xs text-zinc-200 truncate flex-1 min-w-0">{a.nome}</span>
+                      <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-violet-500 rounded-full" style={{ width: `${(a.envios / max) * 100}%` }} />
+                      </div>
+                      <span className="text-xs font-mono text-violet-300 w-8 text-right flex-shrink-0">{a.envios}</span>
+                    </div>
+                  ))
+                })()}
+              </div>
+            )}
           </div>
 
           {/* Por caixa (hoje) */}

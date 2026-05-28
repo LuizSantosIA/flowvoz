@@ -55,6 +55,22 @@ export default function TemplatesPage() {
     } catch { showToast('Falha de rede.') }
   }
 
+  async function move(id: number, dir: -1 | 1) {
+    const idx = items.findIndex(t => t.id === id)
+    const swap = items[idx + dir]
+    if (!swap) return
+    const a = items[idx], b = swap
+    // troca otimista local
+    const novos = [...items]; novos[idx] = { ...b }; novos[idx + dir] = { ...a }
+    setItems(novos)
+    try {
+      await Promise.all([
+        fetch('/api/templates', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: a.id, ordem: b.ordem }) }),
+        fetch('/api/templates', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.id, ordem: a.ordem }) }),
+      ])
+    } catch { load() }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#09090b]">
       {toast && (
@@ -87,11 +103,23 @@ export default function TemplatesPage() {
           <div className="col-span-full text-center text-zinc-500 text-sm py-12 border border-dashed border-zinc-800 rounded-2xl">
             Nenhum template ainda. Clique em <strong>Novo template</strong> pra começar.
           </div>
-        ) : items.map(t => (
+        ) : items.map((t, idx) => (
           <div key={t.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-2">
               <h3 className="text-sm font-semibold text-zinc-100 truncate flex-1">{t.nome}</h3>
-              <span className="text-[10px] font-mono text-zinc-600 flex-shrink-0">#{t.id}</span>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button onClick={() => move(t.id, -1)} disabled={idx === 0}
+                  title="Mover pra cima"
+                  className="p-1 text-zinc-500 hover:text-zinc-200 disabled:opacity-20 disabled:cursor-not-allowed">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><polyline points="18 15 12 9 6 15" /></svg>
+                </button>
+                <button onClick={() => move(t.id, 1)} disabled={idx === items.length - 1}
+                  title="Mover pra baixo"
+                  className="p-1 text-zinc-500 hover:text-zinc-200 disabled:opacity-20 disabled:cursor-not-allowed">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><polyline points="6 9 12 15 18 9" /></svg>
+                </button>
+                <span className="text-[10px] font-mono text-zinc-600 ml-1">#{t.id}</span>
+              </div>
             </div>
             <p className="text-xs text-zinc-400 line-clamp-4 whitespace-pre-wrap">{t.content}</p>
             <div className="flex gap-2 pt-1 mt-auto">

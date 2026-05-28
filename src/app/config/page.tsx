@@ -66,6 +66,21 @@ export default function ConfigPage() {
     setNomeBuffer(ib.nome)
   }
 
+  async function move(key: string, dir: -1 | 1) {
+    const idx = inboxes.findIndex(i => i.key === key)
+    const swap = inboxes[idx + dir]
+    if (!swap) return
+    const a = inboxes[idx], b = swap
+    const novos = [...inboxes]; novos[idx] = { ...b }; novos[idx + dir] = { ...a }
+    setInboxes(novos)
+    try {
+      await Promise.all([
+        fetch('/api/inboxes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: a.key, ordem: b.ordem }) }),
+        fetch('/api/inboxes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: b.key, ordem: a.ordem }) }),
+      ])
+    } catch { load() }
+  }
+
   function commitNome(key: string) {
     const novo = nomeBuffer.trim()
     setEditingNome(null)
@@ -103,7 +118,7 @@ export default function ConfigPage() {
             Nenhuma caixa cadastrada ainda.<br />
             Caixas aparecem aqui automaticamente quando o primeiro recebimento chega de um número.
           </div>
-        ) : inboxes.map(ib => (
+        ) : inboxes.map((ib, idx) => (
           <div key={ib.key} className={`bg-zinc-900 border rounded-2xl p-5 transition-colors ${ib.ativo ? 'border-zinc-800' : 'border-zinc-800 opacity-60'}`}>
             <div className="flex items-start justify-between gap-4">
               {/* Esquerda: identidade */}
@@ -137,14 +152,26 @@ export default function ConfigPage() {
                 <p className="text-[11px] text-zinc-500 font-mono truncate">id: {ib.key}</p>
               </div>
 
-              {/* Direita: toggle ativo */}
-              <button
-                onClick={() => update(ib.key, { ativo: !ib.ativo })}
-                title={ib.ativo ? 'Desativar' : 'Ativar'}
-                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${ib.ativo ? 'bg-emerald-600' : 'bg-zinc-700'}`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${ib.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </button>
+              {/* Direita: reorder + toggle ativo */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex flex-col">
+                  <button onClick={() => move(ib.key, -1)} disabled={idx === 0} title="Subir"
+                    className="p-0.5 text-zinc-500 hover:text-zinc-200 disabled:opacity-20 disabled:cursor-not-allowed">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><polyline points="18 15 12 9 6 15" /></svg>
+                  </button>
+                  <button onClick={() => move(ib.key, 1)} disabled={idx === inboxes.length - 1} title="Descer"
+                    className="p-0.5 text-zinc-500 hover:text-zinc-200 disabled:opacity-20 disabled:cursor-not-allowed">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><polyline points="6 9 12 15 18 9" /></svg>
+                  </button>
+                </div>
+                <button
+                  onClick={() => update(ib.key, { ativo: !ib.ativo })}
+                  title={ib.ativo ? 'Desativar' : 'Ativar'}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${ib.ativo ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${ib.ativo ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
             </div>
 
             {/* Seletor de cor */}

@@ -159,6 +159,7 @@ function ConversasContent() {
   const [audioSearch, setAudioSearch] = useState('')
   const [templates, setTemplates] = useState<TextTemplate[]>([])
   const [rightTab, setRightTab] = useState<'audios' | 'textos'>('audios')
+  const [mobileShortcutsOpen, setMobileShortcutsOpen] = useState(false)
   const [sendingAudio, setSendingAudio] = useState<number | null>(null)
   const [sentAudio, setSentAudio] = useState<number | null>(null)
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({})
@@ -258,6 +259,39 @@ function ConversasContent() {
       Notification.requestPermission().catch(() => { /* ignora */ })
     }
   }, [])
+
+  // Atalhos de teclado:
+  //   Esc     → fecha conversa selecionada / limpa busca
+  //   Ctrl+/  → foca a busca de conversas
+  const navListRef = useRef<{ keys: string[] } | null>(null)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName
+      const isTyping = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable
+      if (e.key === 'Escape') {
+        if (selectedKey) { setSelectedKey(null); e.preventDefault() }
+        else if (search) { setSearch(''); e.preventDefault() }
+        return
+      }
+      if (e.key === '/' && (e.ctrlKey || e.metaKey)) {
+        const el = document.querySelector<HTMLInputElement>('input[placeholder*="Buscar por nome"]')
+        el?.focus(); el?.select(); e.preventDefault()
+        return
+      }
+      if (!isTyping && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        const keys = navListRef.current?.keys ?? []
+        if (keys.length === 0) return
+        const idx = selectedKey ? keys.indexOf(selectedKey) : -1
+        const next = e.key === 'ArrowDown'
+          ? (idx < keys.length - 1 ? idx + 1 : 0)
+          : (idx > 0 ? idx - 1 : keys.length - 1)
+        setSelectedKey(keys[next])
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedKey, search])
 
   useEffect(() => {
     function refresh() {
@@ -370,7 +404,7 @@ function ConversasContent() {
       const r = await fetch('/api/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tipo: 'audio', audio_url: audioUrl }),
+        body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox, tipo: 'audio', audio_url: audioUrl, audio_id: audio.id }),
       })
       if (!r.ok) {
         const data = await r.json().catch(() => ({}))
@@ -440,8 +474,67 @@ function ConversasContent() {
 
   const showInboxTag = selectedInbox === 'todos' && inboxes.length > 1
 
+  // mantém a lista de keys atualizada para navegação por setas
+  useEffect(() => {
+    navListRef.current = { keys: filteredConversas.map(convKey) }
+  })
+
   return (
     <div className="flex-1 flex overflow-hidden h-full bg-[#09090b]">
+      {/* Drawer mobile: Áudios + Textos (visível só com < md) */}
+      {mobileShortcutsOpen && (
+        <div className="md:hidden fixed inset-0 z-40 bg-[#09090b]/95 backdrop-blur flex flex-col">
+          <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-white">Atalhos rápidos</h2>
+            <button onClick={() => setMobileShortcutsOpen(false)} className="p-1 text-zinc-400 hover:text-zinc-100">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div className="px-3 pt-3 flex gap-1 border-b border-zinc-800">
+            <button onClick={() => setRightTab('audios')}
+              className={`flex-1 py-2 rounded-t-lg text-xs font-semibold transition-colors ${rightTab === 'audios' ? 'bg-zinc-800 text-violet-300' : 'text-zinc-500'}`}>Áudios</button>
+            <button onClick={() => setRightTab('textos')}
+              className={`flex-1 py-2 rounded-t-lg text-xs font-semibold transition-colors ${rightTab === 'textos' ? 'bg-zinc-800 text-violet-300' : 'text-zinc-500'}`}>Textos</button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+            {rightTab === 'audios' ? (
+              filteredAudios.length === 0
+                ? <div className="text-xs text-zinc-600 text-center py-8">Nenhum áudio.</div>
+                : filteredAudios.map(audio => (
+                    <div key={audio.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+                      <p className="text-sm font-semibold text-zinc-200 mb-2 truncate">{audio.nome}</p>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => playAudio(audio)} className="px-3 py-2 rounded-lg bg-zinc-800 text-zinc-300 text-xs">▶</button>
+                        <button
+                          onClick={async () => { await sendAudio(audio); setMobileShortcutsOpen(false) }}
+                          disabled={sendingAudio === audio.id}
+                          className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg"
+                        >
+                          {sendingAudio === audio.id ? 'Enviando…' : 'Enviar'}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+            ) : (
+              templates.length === 0
+                ? <div className="text-xs text-zinc-600 text-center py-8">Nenhum template.</div>
+                : templates.map(t => (
+                    <div key={t.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+                      <p className="text-sm font-semibold text-zinc-200 mb-1 truncate">{t.nome}</p>
+                      <p className="text-[11px] text-zinc-500 line-clamp-2 mb-2 whitespace-pre-wrap">{t.content}</p>
+                      <button
+                        onClick={() => { setReplyText(t.content); setMobileShortcutsOpen(false); showToast('Texto inserido') }}
+                        className="w-full py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-lg"
+                      >Inserir no chat</button>
+                    </div>
+                  ))
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Toast */}
       {toast && (
         <div className="fixed top-5 right-5 z-50 bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm px-4 py-2.5 rounded-xl shadow-xl">
@@ -601,6 +694,18 @@ function ConversasContent() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMobileShortcutsOpen(true)}
+                  title="Áudios e textos"
+                  className="md:hidden p-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                </button>
                 {currentStatus !== 'andamento' && currentStatus !== 'encerrado' && (
                   <button onClick={assumeChat} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-lg transition-colors">
                     Assumir

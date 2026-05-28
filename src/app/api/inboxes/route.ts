@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logAudit } from '@/lib/audit'
 
 interface Inbox {
   key: string
@@ -58,6 +59,7 @@ export async function PATCH(req: NextRequest) {
       vals
     )
     if (!r.rows[0]) return NextResponse.json({ ok: false, error: 'caixa não encontrada' }, { status: 404 })
+    await logAudit('inbox_update', { key, patch: { nome, cor, ativo, ordem } }, req)
     return NextResponse.json({ ok: true, inbox: r.rows[0] })
   } catch (err) {
     console.error('[/api/inboxes] PATCH erro:', err)
