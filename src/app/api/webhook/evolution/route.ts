@@ -21,8 +21,33 @@ export async function POST(req: NextRequest) {
 
   const inbox: string | null = body?.instance ?? null
   const session_id = data?.key?.remoteJid?.split('@')[0]
-  const nome = data?.pushName || session_id
   const messageType: string = data?.messageType || 'conversation'
+
+  // Nome do contato:
+  //  1) pushName na própria mensagem (ideal)
+  //  2) fallback: busca o perfil na Evolution (chat/fetchProfile)
+  //  3) último fallback: o próprio número
+  let nome: string = data?.pushName || ''
+  if (!nome && inbox && session_id) {
+    try {
+      const res = await fetch(
+        `${process.env.EVO_URL}/chat/fetchProfile/${inbox}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: process.env.EVO_APIKEY ?? '',
+          },
+          body: JSON.stringify({ number: session_id }),
+        },
+      )
+      if (res.ok) {
+        const profile = await res.json() as { name?: string; pushname?: string }
+        nome = (profile.name || profile.pushname || '').trim()
+      }
+    } catch { /* silencioso — segue pro fallback final */ }
+  }
+  if (!nome) nome = session_id
 
   let content = ''
   if (messageType === 'conversation') content = data?.message?.conversation || ''
