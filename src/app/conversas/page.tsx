@@ -330,8 +330,31 @@ function ConversasContent() {
           .catch(() => { /* silencioso */ })
       }
     }
-    const id = setInterval(refresh, 5000)
-    return () => clearInterval(id)
+
+    // Polling adaptativo: 5s com aba visível, 30s em segundo plano
+    let timer: ReturnType<typeof setTimeout> | null = null
+    function schedule() {
+      if (timer) clearTimeout(timer)
+      const delay = (typeof document !== 'undefined' && document.visibilityState === 'visible') ? 5000 : 30000
+      timer = setTimeout(() => { refresh(); schedule() }, delay)
+    }
+    function onVisibility() {
+      if (document.visibilityState === 'visible') {
+        // voltou pra aba → atualiza na hora e re-agenda em ritmo rápido
+        refresh()
+        schedule()
+      }
+    }
+    schedule()
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility)
+    }
+    return () => {
+      if (timer) clearTimeout(timer)
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility)
+      }
+    }
   }, [])
 
   useEffect(() => {
