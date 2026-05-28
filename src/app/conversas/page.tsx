@@ -440,19 +440,8 @@ function ConversasContent() {
       showToast('Seu navegador não suporta gravação de áudio.'); return
     }
 
-    // 2) Verifica se a permissão já foi negada antes (silenciosa)
-    try {
-      const nav = navigator as Navigator & { permissions?: { query: (q: { name: PermissionName }) => Promise<PermissionStatus> } }
-      if (nav.permissions?.query) {
-        const status = await nav.permissions.query({ name: 'microphone' as PermissionName })
-        if (status.state === 'denied') {
-          showToast('Microfone bloqueado. Clique no cadeado da URL → libere o microfone → recarregue.')
-          return
-        }
-      }
-    } catch { /* Permissions API indisponível, segue normal */ }
-
-    // 3) Pede acesso ao microfone (browser exibe o popup se ainda não foi decidido)
+    // (não confia na Permissions API — ela mente em alguns Chromium. Vai direto pro getUserMedia.)
+    // 2) Pede acesso ao microfone (browser exibe o popup se ainda não foi decidido)
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -470,7 +459,7 @@ function ConversasContent() {
       return
     }
 
-    // 4) Inicia a gravação
+    // 3) Inicia a gravação
     try {
       recordStreamRef.current = stream
       const mime = pickMime()
