@@ -58,9 +58,9 @@ export async function POST(req: NextRequest) {
       }
 
       // Tipos aceitos
-      const okTypes = ['audio/ogg', 'audio/mpeg', 'audio/mp3', 'audio/m4a', 'audio/x-m4a', 'audio/wav', 'audio/webm', 'audio/aac', 'audio/x-aac', 'audio/opus']
-      if (file.type && !okTypes.some(t => file.type.startsWith(t.split('/')[0]) || file.type === t)) {
-        return NextResponse.json({ ok: false, error: `Formato não suportado: ${file.type}` }, { status: 400 })
+      const okTypes = ['audio/ogg', 'audio/mpeg', 'audio/mp3', 'audio/m4a', 'audio/x-m4a', 'audio/wav', 'audio/aac', 'audio/x-aac', 'audio/opus']
+      if (file.type && !okTypes.some(t => file.type === t || file.type.startsWith(t))) {
+        return NextResponse.json({ ok: false, error: `Formato não suportado: ${file.type}. Use .ogg, .mp3, .m4a ou .wav.` }, { status: 400 })
       }
 
       // Filename seguro

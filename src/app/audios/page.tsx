@@ -181,11 +181,8 @@ export default function AudiosPage() {
     if (!recordedBlob || !nome.trim()) { setRecordError('Grave um áudio e informe o nome.'); return }
     setUploading(true)
     try {
-      const rawType = recordedBlob.type || 'audio/webm'
-      const cleanType = rawType.split(';')[0]
-      const ext = cleanType.includes('ogg') ? 'ogg' : cleanType.includes('mp4') || cleanType.includes('m4a') ? 'm4a' : 'webm'
-
-      const fileToSend = new File([recordedBlob], `gravacao.${ext}`, { type: cleanType })
+      // opus-recorder sempre gera OGG — forçamos o tipo para garantir compatibilidade com Meta
+      const fileToSend = new File([recordedBlob], 'gravacao.ogg', { type: 'audio/ogg' })
       const form = new FormData()
       form.append('file', fileToSend)
       form.append('nome', nome.trim())
@@ -329,7 +326,7 @@ export default function AudiosPage() {
                 : 'border-zinc-700 hover:border-zinc-600 bg-zinc-800/50'
               }`}
             >
-              <input ref={fileInputRef} type="file" accept=".ogg,.opus,.mp3,.m4a,.wav,audio/*" onChange={e => setFile(e.target.files?.[0] ?? null)} className="hidden" />
+              <input ref={fileInputRef} type="file" accept=".ogg,.opus,.mp3,.m4a,.wav" onChange={e => setFile(e.target.files?.[0] ?? null)} className="hidden" />
               {file ? (
                 <>
                   <svg className="w-8 h-8 text-emerald-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><polyline points="20 6 9 17 4 12" /></svg>
@@ -344,7 +341,7 @@ export default function AudiosPage() {
                     <line x1="12" y1="3" x2="12" y2="15" />
                   </svg>
                   <p className="text-sm text-zinc-400">Arraste o áudio aqui ou <span className="text-violet-400">clique para selecionar</span></p>
-                  <p className="text-xs text-zinc-600 mt-1">.ogg, .opus, .mp3, .m4a, .wav · máx 10MB</p>
+                  <p className="text-xs text-zinc-600 mt-1">.ogg, .mp3, .m4a, .wav · máx 10MB · .webm não suportado</p>
                 </>
               )}
             </div>
