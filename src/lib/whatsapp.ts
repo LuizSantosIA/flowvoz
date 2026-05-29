@@ -24,7 +24,19 @@ function evoNumber(to: string) {
   return to.includes('@') ? to : `${to}@s.whatsapp.net`
 }
 function metaNumber(to: string) {
-  return to.replace(/\D/g, '')
+  let n = to.replace(/\D/g, '')
+  // Workaround Meta + Brasil: a API armazena wa_id sem o "9" (12 dígitos) mas
+  // exige "9" na frente quando manda mensagem (13 dígitos). Insere se faltar.
+  // Formato esperado: 55 + DDD (2) + 9 + número (8) = 13 dígitos
+  if (n.length === 12 && n.startsWith('55')) {
+    const ddd = n.slice(2, 4)
+    const rest = n.slice(4)
+    // Só insere o 9 se for número de celular (DDD válido + 8 dígitos restantes começando com 6-9)
+    if (rest.length === 8 && /^[6789]/.test(rest)) {
+      n = '55' + ddd + '9' + rest
+    }
+  }
+  return n
 }
 
 // ─── Evolution API v2 ──────────────────────────────────────────────────────────
