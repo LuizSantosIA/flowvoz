@@ -133,7 +133,8 @@ export default function AudiosPage() {
   // ── Gravação ao vivo ────────────────────────────────────────────────────────
   function pickMime(): string {
     if (typeof MediaRecorder === 'undefined') return ''
-    for (const t of ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']) {
+    // Prefere mp4 e ogg (aceitos pela Meta). webm fica por último.
+    for (const t of ['audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm']) {
       if (MediaRecorder.isTypeSupported(t)) return t
     }
     return ''

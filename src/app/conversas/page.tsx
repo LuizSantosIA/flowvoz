@@ -480,7 +480,8 @@ function ConversasContent() {
   // ── Gravação ao vivo ────────────────────────────────────────────────────────
   function pickMime(): string {
     if (typeof MediaRecorder === 'undefined') return ''
-    const tries = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+    // Prefere mp4 e ogg (formatos aceitos pela Meta). webm fica por último (Evolution aceita, Meta NÃO).
+    const tries = ['audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm']
     for (const t of tries) { if (MediaRecorder.isTypeSupported(t)) return t }
     return ''
   }
