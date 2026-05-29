@@ -166,7 +166,9 @@ function ConversasContent() {
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
   const [recordTime, setRecordTime] = useState(0)
   const [sendingRecording, setSendingRecording] = useState(false)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  // Recorder pode ser MediaRecorder ou opus-recorder.Recorder; usamos any pra simplificar tipagem
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mediaRecorderRef = useRef<any>(null)
   const recordStreamRef = useRef<MediaStream | null>(null)
   const recordChunksRef = useRef<Blob[]>([])
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -477,14 +479,7 @@ function ConversasContent() {
     setSendingAudio(null)
   }
 
-  // ── Gravação ao vivo ────────────────────────────────────────────────────────
-  function pickMime(): string {
-    if (typeof MediaRecorder === 'undefined') return ''
-    // Prefere mp4 e ogg (formatos aceitos pela Meta). webm fica por último (Evolution aceita, Meta NÃO).
-    const tries = ['audio/mp4', 'audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm']
-    for (const t of tries) { if (MediaRecorder.isTypeSupported(t)) return t }
-    return ''
-  }
+  // ── Gravação ao vivo (com opus-recorder: gera OGG+Opus, formato aceito pela Meta) ──
   function fmtTime(s: number) {
     const m = Math.floor(s / 60).toString().padStart(2, '0')
     const sec = (s % 60).toString().padStart(2, '0')
@@ -492,77 +487,53 @@ function ConversasContent() {
   }
   async function startRecording() {
     if (!selectedConversa) { showToast('Selecione uma conversa primeiro'); return }
-
-    // 1) Verifica se o navegador suporta gravação
     if (typeof window === 'undefined' || !window.isSecureContext) {
       showToast('Gravação só funciona em HTTPS.'); return
     }
-    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      showToast('Seu navegador não suporta gravação de áudio.'); return
-    }
-
-    // (não confia na Permissions API — ela mente em alguns Chromium. Vai direto pro getUserMedia.)
-    // 2) Pede acesso ao microfone (browser exibe o popup se ainda não foi decidido)
-    let stream: MediaStream
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch (err) {
-      const e = err as { name?: string; message?: string }
-      console.error('[microfone] erro getUserMedia:', e.name, e.message, err)
-      if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-        showToast('Acesso bloqueado. Confira: cadeado da URL + Windows → Privacidade → Microfone (F12 pra ver o erro exato).')
-      } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
-        showToast('Nenhum microfone encontrado no computador.')
-      } else if (e.name === 'NotReadableError') {
-        showToast('Microfone em uso por outro programa.')
-      } else {
-        showToast(`Erro: ${e.name ?? 'desconhecido'} — abra F12 → Console pra detalhes.`)
-      }
-      return
-    }
-
-    // 3) Inicia a gravação
-    try {
-      recordStreamRef.current = stream
-      const mime = pickMime()
-      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
-      mediaRecorderRef.current = rec
-      recordChunksRef.current = []
-      rec.ondataavailable = e => { if (e.data && e.data.size > 0) recordChunksRef.current.push(e.data) }
-      rec.onstop = () => {
-        const type = rec.mimeType || 'audio/ogg'
-        const blob = new Blob(recordChunksRef.current, { type })
+      const mod = await import('opus-recorder')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Recorder: any = (mod as any).default ?? mod
+      const recorder = new Recorder({
+        encoderPath: '/opus/encoderWorker.min.js',
+        encoderApplication: 2049, // VOIP
+        encoderSampleRate: 48000,
+        numberOfChannels: 1,
+        streamPages: false,
+        encoderBitRate: 24000,
+        monitorGain: 0,
+        recordingGain: 1,
+      })
+      recorder.ondataavailable = (typedArray: Uint8Array) => {
+        const blob = new Blob([new Uint8Array(typedArray)], { type: 'audio/ogg' })
         setRecordedBlob(blob)
-        stream.getTracks().forEach(t => t.stop())
-        recordStreamRef.current = null
       }
-      rec.start()
-      setIsRecording(true)
-      setRecordedBlob(null)
-      setRecordTime(0)
+      mediaRecorderRef.current = recorder
+      await recorder.start()
+      setIsRecording(true); setRecordedBlob(null); setRecordTime(0)
       if (recordTimerRef.current) clearInterval(recordTimerRef.current)
       recordTimerRef.current = setInterval(() => setRecordTime(t => t + 1), 1000)
-    } catch {
-      stream.getTracks().forEach(t => t.stop())
-      showToast('Erro ao iniciar a gravação.')
+    } catch (err) {
+      const e = err as { name?: string; message?: string }
+      console.error('[recorder]', e.name, e.message, err)
+      if (e.name === 'NotAllowedError') showToast('Acesso bloqueado. Cadeado da URL → libere o microfone.')
+      else if (e.name === 'NotFoundError') showToast('Nenhum microfone encontrado.')
+      else if (e.name === 'NotReadableError') showToast('Microfone em uso por outro programa.')
+      else showToast(`Erro: ${e.message ?? e.name ?? 'desconhecido'}`)
     }
   }
   function stopRecording() {
     if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
     setIsRecording(false)
     const rec = mediaRecorderRef.current
-    if (rec && rec.state !== 'inactive') rec.stop()
+    if (rec?.stop) { try { rec.stop() } catch {} }
   }
   function discardRecording() {
     if (recordTimerRef.current) { clearInterval(recordTimerRef.current); recordTimerRef.current = null }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try { mediaRecorderRef.current.stop() } catch {}
-    }
-    recordStreamRef.current?.getTracks().forEach(t => t.stop())
-    recordStreamRef.current = null
-    setIsRecording(false)
-    setRecordedBlob(null)
-    setRecordTime(0)
+    const rec = mediaRecorderRef.current
+    if (rec?.stop) { try { rec.stop() } catch {} }
+    if (rec?.close) { try { rec.close() } catch {} }
+    setIsRecording(false); setRecordedBlob(null); setRecordTime(0)
   }
   async function sendRecording() {
     if (!recordedBlob || !selectedConversa) return
