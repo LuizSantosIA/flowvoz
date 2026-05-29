@@ -10,6 +10,7 @@ import { checkRateLimit, clientIp } from '@/lib/rate-limit'
 function friendlyError(msg: string): string {
   const low = msg.toLowerCase()
   if (low.includes('"exists":false')) return 'Esse número não existe no WhatsApp.'
+  if (low.includes('oauthexception') || low.includes('"code":190') || low.includes('access token') || low.includes('token')) return 'Token Meta expirado. Atualize META_TOKEN no Vercel.'
   if (low.includes('401') || low.includes('unauthorized')) return 'Credenciais inválidas no provedor.'
   if (low.includes('403') || low.includes('forbidden')) return 'Provedor recusou o envio (permissão).'
   if (low.includes('404')) return 'Endpoint do provedor não encontrado.'
