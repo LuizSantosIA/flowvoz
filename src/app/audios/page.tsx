@@ -194,7 +194,7 @@ export default function AudiosPage() {
 
       if (!r.ok) {
         const msg = respJson.error || respText.slice(0, 200) || `HTTP ${r.status}`
-        setRecordError(`HTTP ${r.status} — ${msg} (tipo: ${rawType}, tamanho: ${recordedBlob.size}b)`)
+        setRecordError(`HTTP ${r.status} — ${msg} (tamanho: ${recordedBlob.size}b)`)
       } else {
         showToast('Áudio gravado salvo!')
         closeRec(); load()
