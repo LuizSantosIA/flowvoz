@@ -154,6 +154,7 @@ function ConversasContent() {
   // Etiquetas (tags) — catálogo + dropdown aberto?
   const [allTags, setAllTags] = useState<Tag[]>([])
   const [showTagPicker, setShowTagPicker] = useState(false)
+  const [showConvMenu, setShowConvMenu] = useState(false)
 
   // Arquivadas: mostra ativas (false) ou arquivadas (true)?
   const [showArchived, setShowArchived] = useState(false)
@@ -232,6 +233,26 @@ function ConversasContent() {
   }, [])
 
   // Arquiva/desarquiva a conversa selecionada (do chat header)
+  async function clearMessages() {
+    if (!selectedConversa) return
+    if (!confirm('Apagar todas as mensagens desta conversa?')) return
+    setShowConvMenu(false)
+    const q = new URLSearchParams({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox ?? '', mode: 'messages' })
+    await fetch(`/api/conversas?${q}`, { method: 'DELETE' })
+    setMessages([])
+  }
+
+  async function deleteConversation() {
+    if (!selectedConversa) return
+    if (!confirm('Apagar conversa e todas as mensagens permanentemente?')) return
+    setShowConvMenu(false)
+    const q = new URLSearchParams({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox ?? '', mode: 'all' })
+    await fetch(`/api/conversas?${q}`, { method: 'DELETE' })
+    setSelectedKey(null)
+    setMessages([])
+    setConversas(prev => prev.filter(c => convKey(c) !== convKey(selectedConversa)))
+  }
+
   async function toggleArchive() {
     if (!selectedConversa) return
     await archiveConversa(selectedConversa, !selectedConversa.arquivada)
@@ -888,6 +909,41 @@ function ConversasContent() {
                     <span className="bg-violet-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">{selectedConversa.tags.length}</span>
                   )}
                 </button>
+
+                {/* Menu ··· */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowConvMenu(s => !s)}
+                    title="Mais opções"
+                    className="p-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                      <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+                    </svg>
+                  </button>
+                  {showConvMenu && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setShowConvMenu(false)} />
+                      <div className="absolute right-0 top-full mt-1 z-40 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-52 overflow-hidden">
+                        <button onClick={clearMessages}
+                          className="w-full px-4 py-2.5 text-left text-xs text-zinc-300 hover:bg-zinc-800 flex items-center gap-2 transition-colors">
+                          <svg className="w-3.5 h-3.5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" />
+                          </svg>
+                          Limpar mensagens
+                        </button>
+                        <div className="border-t border-zinc-800" />
+                        <button onClick={deleteConversation}
+                          className="w-full px-4 py-2.5 text-left text-xs text-red-400 hover:bg-zinc-800 flex items-center gap-2 transition-colors">
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /><path d="M9 6V4h6v2" />
+                          </svg>
+                          Apagar conversa
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {showTagPicker && (
                   <>

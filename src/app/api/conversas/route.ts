@@ -82,6 +82,28 @@ export async function GET(req: NextRequest) {
   }
 }
 
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url)
+  const session_id = searchParams.get('session_id')
+  const inbox = searchParams.get('inbox') ?? ''
+  const mode = searchParams.get('mode') ?? 'messages' // 'messages' | 'all'
+
+  if (!session_id) return NextResponse.json({ error: 'session_id obrigatório' }, { status: 400 })
+
+  try {
+    if (mode === 'all') {
+      await db.query(`DELETE FROM lead_tags WHERE session_id = $1 AND inbox = $2`, [session_id, inbox])
+      await db.query(`DELETE FROM conversas_status WHERE session_id = $1 AND inbox = $2`, [session_id, inbox])
+    }
+    await db.query(`DELETE FROM messages WHERE session_id = $1 AND ($2 = '' OR inbox = $2)`, [session_id, inbox])
+    await logAudit(mode === 'all' ? 'conv_delete' : 'conv_clear', { session_id, inbox }, req)
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    console.error('[DELETE /api/conversas]', err)
+    return NextResponse.json({ error: 'Erro ao apagar' }, { status: 500 })
+  }
+}
+
 export async function POST(req: NextRequest) {
   // Assumir atendimento (status independente por número/caixa)
   const { session_id, inbox } = await req.json()
