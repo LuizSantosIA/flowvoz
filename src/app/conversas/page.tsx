@@ -1050,6 +1050,21 @@ function ConversasContent() {
                             <p className="text-xs mt-1 opacity-80">{msg.content}</p>
                           )}
                         </div>
+                      ) : msg.tipo === 'video' ? (
+                        <div className="min-w-[200px]">
+                          {msg.media_url ? (
+                            <video
+                              controls
+                              src={msg.media_url}
+                              className="rounded-lg max-w-[260px] max-h-[200px] w-full"
+                            />
+                          ) : (
+                            <p className="text-xs">[Vídeo]</p>
+                          )}
+                          {msg.content && msg.content !== '[Mensagem]' && msg.content !== '[Vídeo]' && (
+                            <p className="text-xs mt-1 opacity-80">{msg.content}</p>
+                          )}
+                        </div>
                       ) : msg.tipo === 'document' ? (
                         <div className="flex items-center gap-2">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isOut ? 'bg-violet-700/60' : 'bg-zinc-700'}`}>
