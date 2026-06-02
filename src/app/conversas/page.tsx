@@ -23,9 +23,10 @@ interface Message {
   id: string
   direction: 'in' | 'out'
   content: string
-  tipo: 'text' | 'audio' | 'image' | 'location' | string
+  tipo: 'text' | 'audio' | 'image' | 'document' | 'video' | 'location' | string
   hora: string
   status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | null
+  media_url?: string | null
 }
 
 function StatusTicks({ status }: { status?: Message['status'] }) {
@@ -944,17 +945,55 @@ function ConversasContent() {
                       isOut ? 'bg-violet-900/60 text-violet-100 rounded-br-md' : 'bg-zinc-800 text-zinc-200 rounded-bl-md'
                     }`}>
                       {msg.tipo === 'audio' ? (
+                        <div className="min-w-[200px]">
+                          {msg.media_url ? (
+                            <audio controls src={msg.media_url} className="w-full max-w-[260px] h-10 accent-violet-500" />
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isOut ? 'bg-violet-700/60' : 'bg-zinc-700'}`}>
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+                                </svg>
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium">{msg.content}</p>
+                                <p className={`text-[10px] mt-0.5 ${isOut ? 'text-violet-400/70' : 'text-zinc-500'}`}>Áudio</p>
+                              </div>
+                            </div>
+                          )}
+                          {msg.content && msg.content !== '[Áudio recebido]' && msg.media_url && (
+                            <p className="text-xs mt-1.5 opacity-80 italic">{msg.content}</p>
+                          )}
+                        </div>
+                      ) : msg.tipo === 'image' ? (
+                        <div className="min-w-[160px]">
+                          {msg.media_url ? (
+                            <a href={msg.media_url} target="_blank" rel="noopener noreferrer">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={msg.media_url} alt="Imagem" className="rounded-lg max-w-[240px] max-h-[200px] object-cover cursor-pointer hover:opacity-90 transition-opacity" />
+                            </a>
+                          ) : (
+                            <p className="text-xs">[Imagem]</p>
+                          )}
+                          {msg.content && msg.content !== '[Imagem]' && (
+                            <p className="text-xs mt-1 opacity-80">{msg.content}</p>
+                          )}
+                        </div>
+                      ) : msg.tipo === 'document' ? (
                         <div className="flex items-center gap-2">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isOut ? 'bg-violet-700/60' : 'bg-zinc-700'}`}>
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path d="M9 18V5l12-2v13" />
-                              <circle cx="6" cy="18" r="3" />
-                              <circle cx="18" cy="16" r="3" />
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
                             </svg>
                           </div>
                           <div>
-                            <p className="text-xs font-medium">{msg.content}</p>
-                            <p className={`text-[10px] mt-0.5 ${isOut ? 'text-violet-400/70' : 'text-zinc-500'}`}>Áudio</p>
+                            <p className="text-xs font-medium">{msg.content || 'Documento'}</p>
+                            {msg.media_url && (
+                              <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+                                className={`text-[10px] mt-0.5 underline ${isOut ? 'text-violet-300' : 'text-blue-400'}`}>
+                                Baixar ↗
+                              </a>
+                            )}
                           </div>
                         </div>
                       ) : msg.tipo === 'location' ? (() => {

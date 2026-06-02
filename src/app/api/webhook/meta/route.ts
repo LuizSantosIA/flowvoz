@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { put } from '@vercel/blob'
 import { db } from '@/lib/db'
-import { transcribeAudio, fetchMetaAudio } from '@/lib/transcribe'
+import { transcribeAudio, fetchMetaMedia } from '@/lib/transcribe'
 
 // ─── Tipos Meta ──────────────────────────────────────────────────────────────
 interface MetaMessage {
@@ -132,9 +133,39 @@ async function handlePayload(payload: Record<string, unknown>) {
   }
   else content = '[Mensagem]'
 
+  // ── Busca e armazena mídia no Vercel Blob ────────────────────────────────
+  let mediaUrl: string | null = null
+  let cachedMedia: { buffer: Buffer; mimetype: string } | null = null
+  const mediaId = message.audio?.id ?? message.image?.id ?? message.document?.id ?? message.video?.id ?? null
+
+  if (mediaId && process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const media = await fetchMetaMedia(mediaId)
+      if (media) {
+        cachedMedia = media
+        const ext = media.mimetype.includes('ogg') ? 'ogg'
+          : media.mimetype.includes('mp4') ? 'mp4'
+          : media.mimetype.includes('webm') ? 'webm'
+          : media.mimetype.includes('jpeg') || media.mimetype.includes('jpg') ? 'jpg'
+          : media.mimetype.includes('png') ? 'png'
+          : media.mimetype.includes('pdf') ? 'pdf'
+          : media.mimetype.includes('mpeg') || media.mimetype.includes('mp3') ? 'mp3'
+          : 'bin'
+        const { url } = await put(
+          `wamedia/${Date.now()}-${session_id}.${ext}`,
+          media.buffer,
+          { access: 'public', addRandomSuffix: true, contentType: media.mimetype }
+        )
+        mediaUrl = url
+      }
+    } catch (err) {
+      console.warn('[Meta Webhook] erro ao fazer upload de mídia:', err)
+    }
+  }
+
+  // ── Grava no banco ────────────────────────────────────────────────────────
   let insertedId: number | null = null
   try {
-    // Auto-cadastra a caixa (número Meta) na primeira mensagem
     if (phoneNumberId) {
       await db.query(
         `INSERT INTO inboxes (key, nome, provider, cor, ordem)
@@ -144,20 +175,20 @@ async function handlePayload(payload: Record<string, unknown>) {
       )
     }
     const r = await db.query<{ id: number }>(
-      `INSERT INTO messages (session_id, contact_name, content, message_type, direction, inbox)
-       VALUES ($1,$2,$3,$4,'in',$5)
+      `INSERT INTO messages (session_id, contact_name, content, message_type, direction, inbox, media_url)
+       VALUES ($1,$2,$3,$4,'in',$5,$6)
        RETURNING id`,
-      [session_id, nome, content, tipo, phoneNumberId]
+      [session_id, nome, content, tipo, phoneNumberId, mediaUrl]
     )
     insertedId = r.rows[0]?.id ?? null
   } catch (err) {
     console.error('[Meta Webhook] Erro ao gravar no banco:', err)
   }
 
-  // Se for áudio e OpenAI configurado: transcreve e atualiza a mensagem
-  if (message.type === 'audio' && message.audio?.id && insertedId && process.env.OPENAI_API_KEY) {
+  // ── Transcrição de áudio (reutiliza buffer já baixado) ────────────────────
+  if (message.type === 'audio' && insertedId && process.env.OPENAI_API_KEY) {
     try {
-      const media = await fetchMetaAudio(message.audio.id)
+      const media = cachedMedia ?? (message.audio?.id ? await fetchMetaMedia(message.audio.id) : null)
       if (media) {
         const t = await transcribeAudio(media.buffer, media.mimetype)
         if (t.ok && t.text) {

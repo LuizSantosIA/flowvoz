@@ -23,10 +23,10 @@ export async function GET(req: NextRequest) {
   try {
     if (sessionId) {
       // Mensagens de uma conversa (de um número específico se inbox vier)
-      const result = await db.query<{ id: string; direction: string; content: string; tipo: string; hora: string; status: string | null }>(
+      const result = await db.query<{ id: string; direction: string; content: string; tipo: string; hora: string; status: string | null; media_url: string | null }>(
         `SELECT id::text, direction, content, message_type AS tipo,
                 TO_CHAR(created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora,
-                status
+                status, media_url
          FROM messages
          WHERE session_id = $1 AND ($2::text IS NULL OR inbox = $2)
          ORDER BY created_at ASC

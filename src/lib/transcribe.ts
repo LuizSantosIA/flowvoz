@@ -53,10 +53,10 @@ export async function transcribeAudio(
 }
 
 /**
- * Baixa o áudio de uma mensagem do Meta WhatsApp Cloud API.
+ * Baixa qualquer mídia (áudio, imagem, documento, vídeo) do Meta WhatsApp Cloud API.
  * Processo em 2 passos: 1) GET /{media_id} pra obter URL → 2) GET essa URL com Authorization.
  */
-export async function fetchMetaAudio(mediaId: string): Promise<{ buffer: Buffer; mimetype: string } | null> {
+export async function fetchMetaMedia(mediaId: string): Promise<{ buffer: Buffer; mimetype: string } | null> {
   const token = process.env.META_TOKEN
   if (!token) return null
   try {
@@ -83,10 +83,13 @@ export async function fetchMetaAudio(mediaId: string): Promise<{ buffer: Buffer;
       mimetype: info.mime_type ?? 'audio/ogg',
     }
   } catch (err) {
-    console.warn('[transcribe] erro buscando áudio Meta:', err)
+    console.warn('[transcribe] erro buscando mídia Meta:', err)
     return null
   }
 }
+
+/** @deprecated Use fetchMetaMedia */
+export const fetchMetaAudio = fetchMetaMedia
 
 /**
  * Baixa o áudio de uma mensagem da Evolution API (v2) e devolve como Buffer.
