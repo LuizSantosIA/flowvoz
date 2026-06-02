@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     const result = await db.query(`
       SELECT
         t.session_id, t.inbox, t.inbox_nome, t.inbox_cor, t.nome, t.ultima_msg, t.hora,
-        t.status, t.last_direction, t.last_at,
+        t.status, t.last_direction, t.last_at, t.unread_count,
         COALESCE(
           (SELECT json_agg(json_build_object('id', tg.id, 'nome', tg.nome, 'cor', tg.cor) ORDER BY tg.ordem ASC, tg.id ASC)
              FROM lead_tags lt
@@ -61,7 +61,13 @@ export async function GET(req: NextRequest) {
           COALESCE(cs.arquivada, false) AS arquivada,
           m.direction AS last_direction,
           m.created_at AS last_at,
-          m.created_at AS _ts
+          m.created_at AS _ts,
+          (
+            SELECT COUNT(*)::int FROM messages m2
+            WHERE m2.session_id = m.session_id AND m2.inbox = m.inbox
+              AND m2.direction = 'in'
+              AND (cs.last_read_at IS NULL OR m2.created_at > cs.last_read_at)
+          ) AS unread_count
         FROM messages m
         LEFT JOIN conversas_status cs ON cs.session_id = m.session_id AND cs.inbox = m.inbox
         LEFT JOIN inboxes ib ON ib.key = m.inbox

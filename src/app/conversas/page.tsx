@@ -16,6 +16,7 @@ interface ConversaItem {
   arquivada?: boolean
   last_direction?: 'in' | 'out'
   last_at?: string
+  unread_count?: number
   tags?: Tag[]
 }
 
@@ -300,6 +301,13 @@ function ConversasContent() {
       .then(r => r.json())
       .then((data: Message[]) => { setMessages(data); setLoadingMsgs(false) })
       .catch(() => { setMessages([]); setLoadingMsgs(false) })
+    // Zera o badge de não lidas ao abrir a conversa
+    fetch('/api/conversas/mark-read', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: selectedConversa.session_id, inbox: selectedConversa.inbox }),
+    }).catch(() => {})
+    setConversas(prev => prev.map(c => convKey(c) === selectedKey ? { ...c, unread_count: 0 } : c))
   }, [selectedKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Polling 5s: atualiza lista e mensagens sem precisar de F5 ──
@@ -617,8 +625,8 @@ function ConversasContent() {
       )
     : byInbox
 
-  // Não lidas: conversas cuja última mensagem foi recebida do cliente
-  const isUnread = (c: ConversaItem) => c.last_direction === 'in'
+  // Não lidas: conversas com mensagens do cliente ainda não vistas
+  const isUnread = (c: ConversaItem) => (c.unread_count ?? (c.last_direction === 'in' ? 1 : 0)) > 0
   const unreadByInbox: Record<string, number> = { todos: conversas.filter(isUnread).length }
   for (const ib of inboxes) {
     unreadByInbox[ib.key] = conversas.filter(c => c.inbox === ib.key && isUnread(c)).length
@@ -825,7 +833,14 @@ function ConversasContent() {
                       <span className="text-xs font-semibold text-zinc-200 truncate">{display}</span>
                       <span className="text-[10px] text-zinc-600 flex-shrink-0 ml-1">{conv.hora}</span>
                     </div>
-                    <p className="text-[11px] text-zinc-500 truncate">{conv.ultima_msg}</p>
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-[11px] text-zinc-500 truncate">{conv.ultima_msg}</p>
+                      {(conv.unread_count ?? 0) > 0 && !isSelected && (
+                        <span className="flex-shrink-0 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-emerald-500 text-white text-[10px] font-bold px-1 leading-none">
+                          {(conv.unread_count ?? 0) > 99 ? '99+' : conv.unread_count}
+                        </span>
+                      )}
+                    </div>
                     {(showInboxTag || (conv.tags && conv.tags.length > 0)) && (
                       <div className="mt-1 flex flex-wrap items-center gap-1">
                         {showInboxTag && <InboxBadge nome={conv.inbox_nome} cor={conv.inbox_cor} />}
