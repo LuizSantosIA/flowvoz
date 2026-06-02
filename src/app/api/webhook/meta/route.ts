@@ -151,9 +151,10 @@ async function handlePayload(payload: Record<string, unknown>) {
           : media.mimetype.includes('pdf') ? 'pdf'
           : media.mimetype.includes('mpeg') || media.mimetype.includes('mp3') ? 'mp3'
           : 'bin'
+        const blobData = new Blob([media.buffer], { type: media.mimetype })
         const { url } = await put(
           `wamedia/${Date.now()}-${session_id}.${ext}`,
-          media.buffer,
+          blobData,
           { access: 'public', addRandomSuffix: true, contentType: media.mimetype }
         )
         mediaUrl = url
