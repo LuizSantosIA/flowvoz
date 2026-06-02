@@ -46,20 +46,22 @@ export async function POST(req: NextRequest) {
     : file.type.includes('webm') ? 'webm'
     : 'ogg'
 
-  // 1) Upload pro Blob (público)
+  // 1) Upload pro Blob e resolve inbox em paralelo
   let audioUrl: string
+  let target: Awaited<ReturnType<typeof resolveInbox>>
   try {
-    const blobPath = `recordings/${Date.now()}-${session_id}.${ext}`
-    const uploaded = await put(blobPath, file, { access: 'public', addRandomSuffix: false, contentType: file.type || 'audio/ogg' })
-    audioUrl = uploaded.url
+    const blobPath = `recordings/${Date.now()}-${session_id}.${ext}`;
+    [{ url: audioUrl }, target] = await Promise.all([
+      put(blobPath, file, { access: 'public', addRandomSuffix: false, contentType: file.type || 'audio/ogg' }),
+      resolveInbox(session_id, inbox),
+    ])
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'falha no upload'
     console.error('[/api/send-recording] blob upload:', msg)
     return NextResponse.json({ ok: false, error: 'Falha ao subir o áudio.' }, { status: 500 })
   }
 
-  // 2) Resolve inbox e envia via Evolution/Meta
-  const target = await resolveInbox(session_id, inbox)
+  // 2) Envia via Evolution/Meta
   let externalId: string | undefined
   try {
     ({ externalId } = await sendAudio(target, session_id, audioUrl))

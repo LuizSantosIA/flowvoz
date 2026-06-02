@@ -497,10 +497,10 @@ function ConversasContent() {
       const recorder = new Recorder({
         encoderPath: '/opus/encoderWorker.min.js',
         encoderApplication: 2049, // VOIP
-        encoderSampleRate: 48000,
+        encoderSampleRate: 16000,
         numberOfChannels: 1,
         streamPages: false,
-        encoderBitRate: 24000,
+        encoderBitRate: 16000,
         monitorGain: 0,
         recordingGain: 1,
       })
