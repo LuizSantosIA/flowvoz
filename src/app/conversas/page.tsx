@@ -133,7 +133,8 @@ function ConversasContent() {
   const searchParams = useSearchParams()
   const initialSession = searchParams.get('session_id') ?? null
 
-  const [conversas, setConversas] = useState<ConversaItem[]>(MOCK_CONVERSAS)
+  const [conversas, setConversas] = useState<ConversaItem[]>([])
+  const [loadingConversas, setLoadingConversas] = useState(true)
   const [inboxes, setInboxes] = useState<Inbox[]>([])
   const [selectedInbox, setSelectedInbox] = useState<string>('todos')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -143,7 +144,7 @@ function ConversasContent() {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [sendingMsg, setSendingMsg] = useState(false)
   const [toast, setToast] = useState('')
-  const [audios, setAudios] = useState<Audio[]>(MOCK_AUDIOS)
+  const [audios, setAudios] = useState<Audio[]>([])
   const [audioSearch, setAudioSearch] = useState('')
   const [templates, setTemplates] = useState<TextTemplate[]>([])
   const [rightTab, setRightTab] = useState<'audios' | 'textos'>('audios')
@@ -193,16 +194,19 @@ function ConversasContent() {
 
   useEffect(() => {
     const q = showArchived ? '?arquivadas=true' : ''
-    fetch(`/api/conversas${q}`)
+    fetch(`/api/conversas${q}`, { cache: 'no-store' })
       .then(r => r.json())
       .then((data: ConversaItem[]) => {
-        setConversas(data)
-        if (initialSession && !selectedKey) {
-          const match = data.find(c => c.session_id === initialSession)
-          if (match) setSelectedKey(convKey(match))
+        if (Array.isArray(data)) {
+          setConversas(data)
+          if (initialSession && !selectedKey) {
+            const match = data.find(c => c.session_id === initialSession)
+            if (match) setSelectedKey(convKey(match))
+          }
         }
       })
-      .catch(() => setConversas(MOCK_CONVERSAS))
+      .catch(() => setConversas([]))
+      .finally(() => setLoadingConversas(false))
   }, [initialSession, showArchived]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -751,7 +755,19 @@ function ConversasContent() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {filteredConversas.length === 0 ? (
+          {loadingConversas ? (
+            <div className="flex flex-col gap-2 px-4 pt-4">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="animate-pulse flex gap-3 items-center py-2">
+                  <div className="w-8 h-8 rounded-full bg-zinc-800 shrink-0" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 bg-zinc-800 rounded w-2/3" />
+                    <div className="h-2.5 bg-zinc-800 rounded w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredConversas.length === 0 ? (
             <div className="flex items-center justify-center py-16 text-zinc-600 text-sm">Nenhuma conversa</div>
           ) : filteredConversas.map(conv => {
             const k = convKey(conv)
