@@ -73,7 +73,9 @@ export async function GET(req: NextRequest) {
       ORDER BY t._ts DESC
       LIMIT 200
     `, [inbox, showArchived])
-    return NextResponse.json(result.rows)
+    return NextResponse.json(result.rows, {
+      headers: { 'Cache-Control': 'no-store' }
+    })
   } catch {
     if (sessionId) return NextResponse.json(MOCK_MESSAGES)
     return NextResponse.json(MOCK_CONVERSAS)

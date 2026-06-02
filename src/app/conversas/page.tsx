@@ -357,7 +357,7 @@ function ConversasContent() {
   useEffect(() => {
     function refresh() {
       const q = showArchivedRef.current ? '?arquivadas=true' : ''
-      fetch(`/api/conversas${q}`)
+      fetch(`/api/conversas${q}`, { cache: 'no-store' })
         .then(r => r.json())
         .then((data: ConversaItem[]) => {
           if (!Array.isArray(data)) return
@@ -386,7 +386,7 @@ function ConversasContent() {
       if (sel) {
         const q = new URLSearchParams({ session_id: sel.session_id })
         if (sel.inbox) q.set('inbox', sel.inbox)
-        fetch(`/api/conversas?${q.toString()}`)
+        fetch(`/api/conversas?${q.toString()}`, { cache: 'no-store' })
           .then(r => r.json())
           .then((data: Message[]) => { if (Array.isArray(data)) setMessages(data) })
           .catch(() => { /* silencioso */ })
