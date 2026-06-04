@@ -42,6 +42,21 @@ const typeMap: Record<string, string> = {
   location: 'location',
 }
 
+// ─── Allowlist de números ────────────────────────────────────────────────────
+// Só processa mensagens dos números REAIS do cliente. Ignora os números de teste
+// (sandbox) da Meta e qualquer número não autorizado, que senão poluiriam o painel.
+// Para adicionar um número novo no futuro: defina META_ALLOWED_NUMBERS no Vercel
+// (phone_number_id separado por vírgula). Sem a env, usa o padrão abaixo.
+const ALLOWED_PHONE_NUMBER_IDS = (process.env.META_ALLOWED_NUMBERS ?? '1137235132807919')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean)
+
+function isAllowedNumber(phoneNumberId: string | null): boolean {
+  if (ALLOWED_PHONE_NUMBER_IDS.length === 0) return true // allowlist vazia = processa tudo
+  return !!phoneNumberId && ALLOWED_PHONE_NUMBER_IDS.includes(phoneNumberId)
+}
+
 // ─── GET — Verificação de webhook pela Meta ──────────────────────────────────
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -87,6 +102,13 @@ async function handlePayload(payload: Record<string, unknown>) {
 
   if (!value) return NextResponse.json({ ok: true })
 
+  // ── Blindagem: só processa números autorizados (ignora número de teste da Meta) ──
+  const phoneNumberId = value.metadata?.phone_number_id ?? null
+  if (!isAllowedNumber(phoneNumberId)) {
+    console.log('[Meta Webhook] Número ignorado (não autorizado):', value.metadata?.display_phone_number ?? phoneNumberId)
+    return NextResponse.json({ ok: true })
+  }
+
   // Eventos de status (sent / delivered / read / failed) — atualizam mensagens outbound
   if (value.statuses && value.statuses.length > 0) {
     for (const st of value.statuses) {
@@ -106,7 +128,6 @@ async function handlePayload(payload: Record<string, unknown>) {
 
   const message = value.messages[0]
   const contact = value.contacts?.[0]
-  const phoneNumberId = value.metadata?.phone_number_id ?? null
   const displayNumber = value.metadata?.display_phone_number ?? phoneNumberId ?? 'Meta'
 
   const session_id = message.from
