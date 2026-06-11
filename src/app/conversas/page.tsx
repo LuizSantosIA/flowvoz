@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, Suspense } from 'react'
+import { useEffect, useState, useRef, Suspense, Fragment } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 interface Tag { id: number; nome: string; cor: string }
@@ -26,6 +26,7 @@ interface Message {
   content: string
   tipo: 'text' | 'audio' | 'image' | 'document' | 'video' | 'location' | string
   hora: string
+  created_at?: string
   status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | null
   media_url?: string | null
 }
@@ -123,6 +124,33 @@ function convKey(c: { inbox: string | null; session_id: string }) {
   return `${c.inbox ?? '-'}:${c.session_id}`
 }
 
+// ── Datas (sempre no fuso de São Paulo, igual à hora exibida) ──
+function spDateStr(iso: string) {
+  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+}
+/** Chave do dia (DD/MM/AAAA em SP) — usada pra detectar troca de dia. */
+function dayKey(iso?: string) {
+  return iso ? spDateStr(iso) : ''
+}
+/** Rótulo amigável do separador de dia: Hoje / Ontem / DD/MM/AAAA. */
+function dayLabel(iso?: string) {
+  if (!iso) return ''
+  const target = spDateStr(iso)
+  const now = new Date()
+  const hoje = now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+  const ontem = new Date(now.getTime() - 86400000).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+  if (target === hoje) return 'Hoje'
+  if (target === ontem) return 'Ontem'
+  return target
+}
+/** Formata uma duração em ms como "Xh Ymin" (ou "Ymin"). */
+function fmtDur(ms: number) {
+  const totalMin = Math.max(0, Math.floor(ms / 60000))
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return h > 0 ? `${h}h ${m}min` : `${m}min`
+}
+
 function InboxBadge({ nome, cor }: { nome: string; cor: string }) {
   return (
     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${inboxColor(cor)}`}>
@@ -187,6 +215,13 @@ function ConversasContent() {
   const [playingAudioId, setPlayingAudioId] = useState<number | null>(null)
   const audioRefs = useRef<Record<number, HTMLAudioElement | null>>({})
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Relógio que atualiza a cada 30s — mantém o contador da janela de 24h fresco
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     fetch('/api/inboxes')
@@ -468,7 +503,7 @@ function ConversasContent() {
     const text = replyText.trim()
     setReplyText('')
     const optimisticId = `tmp-${Date.now()}`
-    setMessages(prev => [...prev, { id: optimisticId, direction: 'out', content: text, tipo: 'text', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
+    setMessages(prev => [...prev, { id: optimisticId, direction: 'out', content: text, tipo: 'text', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), created_at: new Date().toISOString() }])
     try {
       const r = await fetch('/api/send', {
         method: 'POST',
@@ -503,7 +538,7 @@ function ConversasContent() {
         const data = await r.json().catch(() => ({}))
         showToast(data.error || 'Falha ao enviar áudio.')
       } else {
-        setMessages(prev => [...prev, { id: Date.now().toString(), direction: 'out', content: audio.nome, tipo: 'audio', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
+        setMessages(prev => [...prev, { id: Date.now().toString(), direction: 'out', content: audio.nome, tipo: 'audio', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), created_at: new Date().toISOString() }])
         setSentAudio(audio.id)
         setTimeout(() => setSentAudio(null), 2000)
       }
@@ -573,7 +608,7 @@ function ConversasContent() {
     if (!recordedBlob || !selectedConversa) return
     setSendingRecording(true)
     const optId = `tmp-${Date.now()}`
-    setMessages(prev => [...prev, { id: optId, direction: 'out', content: 'Áudio gravado', tipo: 'audio', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }])
+    setMessages(prev => [...prev, { id: optId, direction: 'out', content: 'Áudio gravado', tipo: 'audio', hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), created_at: new Date().toISOString() }])
     try {
       const form = new FormData()
       const ext = recordedBlob.type.includes('ogg') ? 'ogg' : recordedBlob.type.includes('mp4') ? 'm4a' : 'webm'
@@ -1008,10 +1043,17 @@ function ConversasContent() {
                 <div className="flex items-center justify-center py-16 text-zinc-600 text-sm">Carregando…</div>
               ) : messages.length === 0 ? (
                 <div className="flex items-center justify-center py-16 text-zinc-600 text-sm">Sem mensagens</div>
-              ) : messages.map(msg => {
+              ) : messages.map((msg, i) => {
                 const isOut = msg.direction === 'out'
+                const showDay = msg.created_at && (i === 0 || dayKey(msg.created_at) !== dayKey(messages[i - 1]?.created_at))
                 return (
-                  <div key={msg.id} className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
+                  <Fragment key={msg.id}>
+                  {showDay && (
+                    <div className="flex justify-center my-3">
+                      <span className="text-[10px] font-semibold text-zinc-400 bg-zinc-800/80 px-3 py-1 rounded-full">{dayLabel(msg.created_at)}</span>
+                    </div>
+                  )}
+                  <div className={`flex ${isOut ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                       isOut ? 'bg-violet-900/60 text-violet-100 rounded-br-md' : 'bg-zinc-800 text-zinc-200 rounded-bl-md'
                     }`}>
@@ -1118,10 +1160,47 @@ function ConversasContent() {
                       </div>
                     </div>
                   </div>
+                  </Fragment>
                 )
               })}
               <div ref={bottomRef} />
             </div>
+
+            {/* Alerta da janela de 24h — baseado na última mensagem RECEBIDA do cliente */}
+            {(() => {
+              let lastInIso: string | undefined
+              for (let i = messages.length - 1; i >= 0; i--) {
+                if (messages[i].direction === 'in') { lastInIso = messages[i].created_at; break }
+              }
+              if (!lastInIso) return null
+              const remaining = 24 * 3600 * 1000 - (now - new Date(lastInIso).getTime())
+              if (remaining <= 0) {
+                return (
+                  <div className="px-5 py-2 bg-rose-950/40 border-t border-rose-900/60 text-rose-200 text-[11px] flex items-center gap-2 flex-shrink-0">
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span><strong>Janela de 24h expirada.</strong> Para reabrir, é preciso enviar um template aprovado pela Meta.</span>
+                  </div>
+                )
+              }
+              if (remaining <= 6 * 3600 * 1000) {
+                return (
+                  <div className="px-5 py-2 bg-amber-950/40 border-t border-amber-900/60 text-amber-200 text-[11px] flex items-center gap-2 flex-shrink-0">
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                    <span>A janela de 24h fecha em <strong>{fmtDur(remaining)}</strong>. Responda logo — depois disso só com template.</span>
+                  </div>
+                )
+              }
+              return (
+                <div className="px-5 py-1.5 bg-zinc-900/40 border-t border-zinc-800/60 text-zinc-500 text-[10px] flex items-center gap-1.5 flex-shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                  Janela de atendimento aberta · fecha em ~{fmtDur(remaining)}
+                </div>
+              )
+            })()}
 
             {/* Input */}
             <div className="px-5 py-3 pb-20 md:pb-3 border-t border-zinc-800 bg-zinc-900/40 flex-shrink-0">

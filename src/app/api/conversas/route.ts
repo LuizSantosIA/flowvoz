@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { logAudit } from '@/lib/audit'
+import { requireUser } from '@/lib/session'
 
 const MOCK_CONVERSAS = [
   { session_id: '5531991234567', inbox: 'num1', inbox_nome: 'Número 1', inbox_cor: 'violet',  nome: 'Maria Santos',   ultima_msg: 'Oi, quero saber mais', hora: '10:32', status: 'novo' },
@@ -15,6 +16,7 @@ const MOCK_MESSAGES = [
 ]
 
 export async function GET(req: NextRequest) {
+  const guard = await requireUser(req); if ('error' in guard) return guard.error
   const { searchParams } = new URL(req.url)
   const sessionId = searchParams.get('session_id')
   const inbox = searchParams.get('inbox') // filtro opcional
@@ -23,9 +25,10 @@ export async function GET(req: NextRequest) {
   try {
     if (sessionId) {
       // Mensagens de uma conversa (de um número específico se inbox vier)
-      const result = await db.query<{ id: string; direction: string; content: string; tipo: string; hora: string; status: string | null; media_url: string | null }>(
+      const result = await db.query<{ id: string; direction: string; content: string; tipo: string; hora: string; created_at: string; status: string | null; media_url: string | null }>(
         `SELECT id::text, direction, content, message_type AS tipo,
                 TO_CHAR(created_at AT TIME ZONE 'America/Sao_Paulo', 'HH24:MI') AS hora,
+                created_at,
                 status, media_url
          FROM messages
          WHERE session_id = $1 AND ($2::text IS NULL OR inbox = $2)
@@ -89,6 +92,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const guard = await requireUser(req); if ('error' in guard) return guard.error
   const { searchParams } = new URL(req.url)
   const session_id = searchParams.get('session_id')
   const inbox = searchParams.get('inbox') ?? ''
@@ -111,6 +115,7 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const guard = await requireUser(req); if ('error' in guard) return guard.error
   // Assumir atendimento (status independente por número/caixa)
   const { session_id, inbox } = await req.json()
   const inboxKey = inbox ?? ''
@@ -128,6 +133,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const guard = await requireUser(req); if ('error' in guard) return guard.error
   const { session_id, inbox, status } = await req.json()
   const inboxKey = inbox ?? ''
   try {

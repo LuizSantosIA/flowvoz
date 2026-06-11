@@ -41,3 +41,11 @@ export async function requireAdmin(req: NextRequest): Promise<{ me: CurrentUser 
   if (me.role !== 'admin') return { error: NextResponse.json({ ok: false, error: 'Apenas admin.' }, { status: 403 }) }
   return { me }
 }
+
+/** Guarda "qualquer usuário autenticado" — defesa em profundidade nas rotas de API,
+ *  pra não depender só do middleware. Retorna { error } com 401 se não logado. */
+export async function requireUser(req: NextRequest): Promise<{ me: CurrentUser } | { error: NextResponse }> {
+  const me = await getCurrentUser(req)
+  if (!me) return { error: NextResponse.json({ ok: false, error: 'Não autenticado.' }, { status: 401 }) }
+  return { me }
+}
