@@ -5,15 +5,24 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 import { Skeleton } from '@/components/Skeleton'
 
 interface Stats {
-  totals: { in_hoje: number; out_hoje: number; audio_hoje: number; text_hoje: number; conversas_7d: number }
+  totals: {
+    in_hoje: number; out_hoje: number; audio_hoje: number; text_hoje: number
+    conversas_7d: number; conversas_hoje: number; contatos_total: number; msgs_total: number; janela_aberta: number
+  }
   porCaixa: { inbox: string; cor: string; in_hoje: number; out_hoje: number }[]
   porDia:   { dia: string; recebidas: number; enviadas: number }[]
+  porHora:  { hora: string; recebidas: number; enviadas: number }[]
+  porEtiqueta: { nome: string; cor: string; total: number }[]
   topAudios: { nome: string; envios: number }[]
 }
 
 const INBOX_DOT: Record<string, string> = {
   violet: 'bg-violet-500', emerald: 'bg-emerald-500', blue: 'bg-blue-500',
-  amber: 'bg-amber-500', rose: 'bg-rose-500', zinc: 'bg-zinc-500',
+  amber: 'bg-amber-500', rose: 'bg-rose-500', pink: 'bg-pink-500', cyan: 'bg-cyan-500', zinc: 'bg-zinc-500',
+}
+const TAG_BAR: Record<string, string> = {
+  violet: 'bg-violet-500', emerald: 'bg-emerald-500', blue: 'bg-blue-500',
+  amber: 'bg-amber-500', rose: 'bg-rose-500', pink: 'bg-pink-500', cyan: 'bg-cyan-500', zinc: 'bg-zinc-500',
 }
 
 export default function DashboardPage() {
@@ -38,7 +47,7 @@ export default function DashboardPage() {
             <line x1="12" y1="20" x2="12" y2="4" />
             <line x1="6" y1="20" x2="6" y2="14" />
           </svg>
-          Painel de números
+          Painel de métricas
         </h1>
         <p className="text-xs text-zinc-500 mt-0.5">Atualiza automaticamente a cada 30 segundos.</p>
       </div>
@@ -46,7 +55,7 @@ export default function DashboardPage() {
       {loading || !stats ? (
         <div className="p-6 space-y-6 max-w-6xl pb-20 md:pb-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
+            {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-2">
                 <Skeleton className="h-2.5 w-24" />
                 <Skeleton className="h-8 w-12" />
@@ -57,26 +66,24 @@ export default function DashboardPage() {
             <Skeleton className="h-4 w-40 mb-4" />
             <Skeleton className="h-64 w-full" />
           </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-            <Skeleton className="h-4 w-40 mb-4" />
-            <div className="space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}
-            </div>
-          </div>
         </div>
       ) : (
         <div className="p-6 space-y-6 max-w-6xl pb-20 md:pb-6">
           {/* Cards de totais */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Recebidas hoje"  value={stats.totals.in_hoje}   color="bg-blue-500/10 text-blue-300 border-blue-500/30" />
-            <StatCard label="Enviadas hoje"   value={stats.totals.out_hoje}  color="bg-violet-500/10 text-violet-300 border-violet-500/30" />
-            <StatCard label="Áudios hoje"     value={stats.totals.audio_hoje} color="bg-emerald-500/10 text-emerald-300 border-emerald-500/30" />
-            <StatCard label="Conversas 7d"   value={stats.totals.conversas_7d} color="bg-amber-500/10 text-amber-300 border-amber-500/30" />
+            <StatCard label="Recebidas hoje"  value={stats.totals.in_hoje}        color="bg-blue-500/10 text-blue-300 border-blue-500/30" />
+            <StatCard label="Enviadas hoje"   value={stats.totals.out_hoje}       color="bg-violet-500/10 text-violet-300 border-violet-500/30" />
+            <StatCard label="Áudios hoje"     value={stats.totals.audio_hoje}     color="bg-emerald-500/10 text-emerald-300 border-emerald-500/30" />
+            <StatCard label="Conversas hoje"  value={stats.totals.conversas_hoje} color="bg-amber-500/10 text-amber-300 border-amber-500/30" />
+            <StatCard label="Janela 24h aberta" value={stats.totals.janela_aberta} color="bg-cyan-500/10 text-cyan-300 border-cyan-500/30" hint="Conversas que ainda dá pra responder sem template" />
+            <StatCard label="Contatos (total)" value={stats.totals.contatos_total} color="bg-pink-500/10 text-pink-300 border-pink-500/30" />
+            <StatCard label="Conversas 7 dias" value={stats.totals.conversas_7d}  color="bg-zinc-500/10 text-zinc-300 border-zinc-500/30" />
+            <StatCard label="Mensagens (total)" value={stats.totals.msgs_total}   color="bg-zinc-500/10 text-zinc-300 border-zinc-500/30" />
           </div>
 
           {/* Gráfico últimos 7 dias */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-            <h2 className="text-sm font-bold text-zinc-100 mb-4">Últimos 7 dias</h2>
+            <h2 className="text-sm font-bold text-zinc-100 mb-4">Mensagens — últimos 7 dias</h2>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={stats.porDia}>
@@ -93,6 +100,54 @@ export default function DashboardPage() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+
+          {/* Movimento por hora */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <h2 className="text-sm font-bold text-zinc-100 mb-1">Movimento por hora</h2>
+            <p className="text-[11px] text-zinc-500 mb-4">Soma dos últimos 7 dias — ajuda a saber os horários de pico.</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stats.porHora}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                  <XAxis dataKey="hora" stroke="#71717a" fontSize={10} interval={1} />
+                  <YAxis stroke="#71717a" fontSize={12} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 12, color: '#e4e4e7' }}
+                    labelStyle={{ color: '#a1a1aa' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12, color: '#a1a1aa' }} />
+                  <Bar dataKey="recebidas" name="Recebidas" fill="#34d399" radius={[3,3,0,0]} />
+                  <Bar dataKey="enviadas"  name="Enviadas"  fill="#a78bfa" radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Conversas por etiqueta */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <h2 className="text-sm font-bold text-zinc-100 mb-4">Conversas por etiqueta</h2>
+            {stats.porEtiqueta.length === 0 ? (
+              <p className="text-xs text-zinc-500">Nenhuma etiqueta criada ainda.</p>
+            ) : (
+              <div className="space-y-2.5">
+                {(() => {
+                  const max = Math.max(...stats.porEtiqueta.map(t => t.total), 1)
+                  return stats.porEtiqueta.map((t, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="text-xs text-zinc-200 truncate w-28 flex-shrink-0 flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full ${TAG_BAR[t.cor] ?? TAG_BAR.zinc}`} />
+                        {t.nome}
+                      </span>
+                      <div className="flex-1 h-2.5 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${TAG_BAR[t.cor] ?? TAG_BAR.zinc}`} style={{ width: `${(t.total / max) * 100}%` }} />
+                      </div>
+                      <span className="text-xs font-mono text-zinc-300 w-8 text-right flex-shrink-0">{t.total}</span>
+                    </div>
+                  ))
+                })()}
+              </div>
+            )}
           </div>
 
           {/* Top áudios (7 dias) */}
@@ -154,9 +209,9 @@ export default function DashboardPage() {
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({ label, value, color, hint }: { label: string; value: number; color: string; hint?: string }) {
   return (
-    <div className={`border rounded-2xl p-4 ${color}`}>
+    <div className={`border rounded-2xl p-4 ${color}`} title={hint}>
       <p className="text-[11px] uppercase tracking-wide opacity-70">{label}</p>
       <p className="text-3xl font-bold mt-1">{value}</p>
     </div>

@@ -169,6 +169,7 @@ function ConversasContent() {
   const [selectedInbox, setSelectedInbox] = useState<string>('todos')
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [selectedTagId, setSelectedTagId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [replyText, setReplyText] = useState('')
   const [loadingMsgs, setLoadingMsgs] = useState(false)
@@ -652,13 +653,18 @@ function ConversasContent() {
 
   // Busca (nome / número / última msg)
   const searchTerm = search.trim().toLowerCase()
-  const filteredConversas = searchTerm
+  const searchFiltered = searchTerm
     ? byInbox.filter(c =>
         c.nome.toLowerCase().includes(searchTerm) ||
         c.session_id.toLowerCase().includes(searchTerm) ||
         (c.ultima_msg ?? '').toLowerCase().includes(searchTerm)
       )
     : byInbox
+
+  // Filtro por etiqueta selecionada (null = todas)
+  const filteredConversas = selectedTagId == null
+    ? searchFiltered
+    : searchFiltered.filter(c => (c.tags ?? []).some(t => t.id === selectedTagId))
 
   // Não lidas: conversas com mensagens do cliente ainda não vistas
   const isUnread = (c: ConversaItem) => (c.unread_count ?? (c.last_direction === 'in' ? 1 : 0)) > 0
@@ -817,6 +823,30 @@ function ConversasContent() {
               </button>
             )}
           </div>
+
+          {/* Filtro por etiqueta */}
+          {allTags.length > 0 && (
+            <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+              <svg className="w-3.5 h-3.5 text-zinc-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                <line x1="7" y1="7" x2="7.01" y2="7" />
+              </svg>
+              {selectedTagId != null && (
+                <button onClick={() => setSelectedTagId(null)} title="Limpar filtro"
+                  className="flex-shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full bg-zinc-700 text-zinc-200 hover:bg-zinc-600">
+                  ✕ Todas
+                </button>
+              )}
+              {allTags.map(tag => (
+                <button key={tag.id} onClick={() => setSelectedTagId(id => id === tag.id ? null : tag.id)}
+                  className={`flex-shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full border transition-all ${
+                    selectedTagId === tag.id ? `${tagColor(tag.cor)} ring-1 ring-current` : 'bg-zinc-800 text-zinc-500 border-transparent hover:text-zinc-300'
+                  }`}>
+                  {tag.nome}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto">
