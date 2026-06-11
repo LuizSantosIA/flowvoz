@@ -29,9 +29,12 @@ export async function middleware(req: NextRequest) {
   const cookie = req.cookies.get('flowvoz_session')?.value
   const session = await verifySession(cookie)
 
-  // 1) Sem sessão válida
+  // 1) Sem sessão válida → fail-closed: sempre exige login.
+  //    (Não depende de PANEL_PASSWORD: cobre também o modo multi-usuário, em que
+  //     PANEL_PASSWORD pode não existir.) Para desenvolvimento local sem auth,
+  //     defina explicitamente ALLOW_OPEN_PANEL=true.
   if (!session) {
-    if (!process.env.PANEL_PASSWORD) return NextResponse.next() // modo dev/inicial
+    if (process.env.ALLOW_OPEN_PANEL === 'true') return NextResponse.next()
     const url = req.nextUrl.clone()
     const target = path + req.nextUrl.search
     url.pathname = '/login'
@@ -61,6 +64,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!api/webhook|api/login|api/logout|login|_next/static|_next/image|audios|favicon|robots).*)',
+    '/((?!api/webhook|api/login|api/logout|login|privacidade|_next/static|_next/image|audios|favicon|robots).*)',
   ],
 }
